@@ -1,3 +1,5 @@
+#:schema https://www.schemastore.org/cargo.json
+
 [package]
 name        = "jsond"
 version     = "0.1.0"
@@ -7,19 +9,57 @@ readme      = "README.md"
 homepage    = "https://github.com/princemuel/jsond"
 repository  = "https://github.com/princemuel/jsond"
 license     = "MIT OR Apache-2.0"
-keywords    = ["api", "json", "mock", "rest", "server"]
+keywords    = [
+  "JSON",
+  "REST",
+  "api",
+  "data",
+  "dummy",
+  "fake",
+  "json",
+  "mock",
+  "mocking",
+  "prototyping",
+  "server",
+  "test",
+  "testing"
+]
 categories  = ["command-line-utilities", "web-programming"]
 
+[[bin]]
+name = "jsond"
+path = "src/main.rs"
+
 [dependencies]
-axum       = { version = "0.8" }
-clap       = { version = "4", features = [
-  "derive",
+anyhow             = "1"
+axum               = { version = "0.8", features = [] }
+clap               = { version = "4", features = ["derive", "env"] }
+json5              = "1"
+mime               = "0.3"
+notify             = { version = "8", features = ["macos_kqueue"] }
+rand               = "0.10"
+serde              = { version = "1", features = ["derive"] }
+serde_json         = { version = "1", features = ["preserve_order"] }
+thiserror          = "2"
+tokio              = { version = "1", features = ["full"] }
+tokio-stream       = "0.1"
+tower              = { version = "0.5", features = ["full"] }
+tower-http         = { version = "0.6", features = [
+  "compression-full",
+  "cors",
+  "fs",
+  "limit",
+  "sensitive-headers",
+  "set-header",
+  "trace"
 ] }
-itertools  = { version = "0.14" }
-thiserror  = "2"
-tokio      = { version = "1.52" }
-tower-http = { version = "0.6" }
-uuid       = { version = "1" }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid               = { version = "1", features = ["serde", "v7"] }
+
+[dev-dependencies]
+axum-test  = "20"
+tokio-test = "0.4"
 
 [features]
 default = []
@@ -33,25 +73,25 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
 # --- Restriction lints (cherry-picked, not in all/pedantic) ---
-absolute_paths                       = "deny"
-alloc_instead_of_core                = "deny"
+absolute_paths                       = "warn"
+alloc_instead_of_core                = "warn"
 allow_attributes                     = "deny"
 # arbitrary_source_item_ordering       = "deny"  ##
 as_conversions                       = "deny"
-as_pointer_underscore                = "deny"
-cfg_not_test                         = "deny"
+as_pointer_underscore                = "warn"
+cfg_not_test                         = "warn"
 clone_on_ref_ptr                     = "deny"
-create_dir                           = "deny"
-dbg_macro                            = "deny"
-decimal_literal_representation       = "deny"
+create_dir                           = "warn"
+dbg_macro                            = "warn"
+decimal_literal_representation       = "warn"
 default_union_representation         = "deny"
 deref_by_slicing                     = "warn"
-else_if_without_else                 = "deny"
+else_if_without_else                 = "warn"
 empty_drop                           = "deny"
-empty_enum_variants_with_brackets    = "deny"
+empty_enum_variants_with_brackets    = "warn"
 empty_structs_with_brackets          = "deny"
 expect_used                          = "warn"
-field_scoped_visibility_modifiers    = "deny"
+field_scoped_visibility_modifiers    = "warn"
 filetype_is_file                     = "deny"
 float_cmp_const                      = "deny"
 fn_to_numeric_cast_any               = "deny"
@@ -128,7 +168,7 @@ single-use-lifetimes          = "deny"
 trivial-casts                 = "deny"
 trivial-numeric-casts         = "deny"
 unit-bindings                 = "deny"
-unnameable-types              = "deny"
+unnameable-types              = "warn"
 unreachable-pub               = "warn"
 unsafe-code                   = "warn"
 # unused-crate-dependencies     = "warn"
@@ -148,7 +188,8 @@ opt-level = 1
 debug     = true
 
 [profile.release]
+opt-level     = 3
 strip         = true
-lto           = "thin"
+lto           = true
 panic         = "abort"
 codegen-units = 1

@@ -65,9 +65,7 @@
   "[powershell]": {
     "editor.defaultFormatter": "ms-vscode.powershell"
   },
-  "[sql]": {
-    "editor.defaultFormatter": "bradymholt.pgformatter"
-  },
+
   "[just]": {
     "editor.defaultFormatter": "nefrob.vscode-just-syntax"
   },
