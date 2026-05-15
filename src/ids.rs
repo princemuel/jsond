@@ -12,41 +12,36 @@ pub enum IdStrategy {
 }
 
 impl IdStrategy {
-    pub const fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub fn generate(self, collection: &[Value]) -> String {
         match self {
+            Self::Uuidv4 => Uuid::new_v4().to_string(),
+            Self::Uuidv7 => Uuid::now_v7().to_string(),
+            // scans existing items and return max+1 or fallback to "1"
+            Self::Int => {
+                let max = collection
+                    .iter()
+                    .filter_map(|item| match *item.get("id")? {
+                        Value::String(ref v) => v.parse().ok(),
+                        Value::Number(ref v) => v.as_u64(),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0);
+                (max + 1).to_string()
+            }
+        }
+    }
+
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match *self {
             Self::Uuidv4 | Self::Uuidv7 => "uuid",
             Self::Int => "int",
         }
     }
-
-    pub fn uuid(&self) -> Option<String> {
-        match self {
-            IdStrategy::Uuidv4 => Some(Uuid::new_v4().to_string()),
-            IdStrategy::Uuidv7 => Some(Uuid::now_v7().to_string()),
-            IdStrategy::Int => None,
-        }
-    }
-
-    /// scans existing items and return max+1.
-    /// it falls back to "1" on an empty collection.
-    pub fn int(collection: &[Value]) -> String {
-        let max = collection
-            .iter()
-            .filter_map(|item| {
-                item.get("id").and_then(|id| match id {
-                    Value::String(v) => v.parse().ok(),
-                    Value::Number(v) => v.as_u64(),
-                    _ => None,
-                })
-            })
-            .max()
-            .unwrap_or(0);
-        (max + 1).to_string()
-    }
 }
 
 impl fmt::Display for IdStrategy {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
 }
