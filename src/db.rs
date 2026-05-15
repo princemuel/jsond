@@ -1,9 +1,8 @@
 //! Thread-safe in-memory JSON database with atomic file persistence.
 //!
 //! Top-level keys are resource names.
-//! - Value is an array  → collection resource (GET / POST / PUT / PATCH /
-//!   DELETE)
-//! - Value is an object → singleton resource (GET / PUT / PATCH)
+//! - A Value array is a collection resource (GET / POST / PUT / PATCH / DELETE)
+//! - A Value object is a singleton resource (GET / PUT / PATCH)
 //!
 //! Each created item gets an auto-generated ID whose format depends on the
 //! resource id strategy is chosen at startup (uuidv4, uuidv7, or int).
@@ -111,16 +110,22 @@ impl Database {
         let mut g = self.write().await;
 
         if item.get("id").is_none() {
-            let id = match g.id_strategy {
-                IdStrategy::Int => {
-                    let existing = match g.data.get(resource) {
-                        Some(Value::Array(arr)) => arr.as_slice(),
-                        _ => &[],
-                    };
-                    IdStrategy::int(existing)
-                }
-                other => other.uuid().unwrap(),
-            };
+            // let collection = g
+            //     .data
+            //     .get(resource)
+            //     .and_then(Value::as_array)
+            //     .map(Vec::as_slice)
+            //     .unwrap_or(&[]);
+
+            const EMPTY: &[Value] = &[];
+            let collection = g
+                .data
+                .get(resource)
+                .and_then(Value::as_array)
+                .map_or_else(|| EMPTY, Vec::as_slice);
+
+            let id = g.id_strategy.generate(collection);
+            normalize_id(&mut item);
 
             item.as_object_mut()
                 .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
@@ -128,13 +133,13 @@ impl Database {
         }
 
         match g.data.get_mut(resource) {
-            Some(Value::Array(v)) => v.push(item.clone()),
+            Some(&mut Value::Array(ref mut v)) => v.push(item.clone()),
             Some(_) => return Err(Error::NotCollection(resource.to_owned())),
             None => {
                 g.data
                     .insert(resource.to_owned(), Value::Array(vec![item.clone()]));
             }
-        };
+        }
 
         persist(&g)?;
         Ok(item)
@@ -150,15 +155,19 @@ impl Database {
         let arr = collection_mut(&mut g, resource)?;
         let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
 
-        arr[pos] = item.clone();
+        if let Some(slot) = arr.get_mut(pos) {
+            *slot = item.clone();
+        } else {
+            return Err(Error::NotFound);
+        }
 
         persist(&g)?;
         Ok(item)
     }
 
     /// Partial update (PATCH). Merges; the `id` is immutable.
-    pub async fn patch(&self, resource: &str, id: &str, patch: Value) -> Result<Value> {
-        let payload = patch
+    pub async fn patch(&self, resource: &str, id: &str, item: Value) -> Result<Value> {
+        let payload = item
             .as_object()
             .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?;
 
@@ -166,16 +175,23 @@ impl Database {
         let arr = collection_mut(&mut g, resource)?;
         let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
 
-        // TODO: needs to use the RFC-7396 JSON Merge Patch.
-        let existing = arr[pos]
-            .as_object_mut()
+        // Verify the element is an object before mutating
+        arr.get(pos)
+            .and_then(|v| v.as_object())
             .ok_or_else(|| Error::NotCollection(resource.to_owned()))?;
 
-        for (k, v) in payload {
-            if k != "id" {
-                existing.insert(k.to_owned(), v.clone());
-            }
-        }
+        let existing = arr.get_mut(pos).ok_or(Error::NotFound)?;
+
+        // Build merge patch without the `id` field
+        let mut patch_value = Value::Object(payload.clone());
+        patch_value
+            .as_object_mut()
+            .ok_or(Error::NotFound)?
+            .remove("id");
+
+        // RFC 7396 JSON Merge Patch: nulls delete keys, objects recurse, scalars
+        // replace
+        json_patch::merge(existing, &patch_value);
 
         let item = arr.get(pos).cloned().ok_or(Error::NotFound)?;
         persist(&g)?;
@@ -194,12 +210,12 @@ impl Database {
         if let Some(key) = dependent {
             let fk = format!("{}Id", singular(resource));
 
-            if let Some(Value::Array(v)) = g.data.get_mut(key) {
+            if let Some(&mut Value::Array(ref mut v)) = g.data.get_mut(key) {
                 v.retain(|item| {
                     item.get(&fk).and_then(Value::as_str) != Some(id)
                         && item
                             .get(&fk)
-                            .map(|v| v.to_string().trim_matches('"').to_string())
+                            .map(|v| v.to_string().trim_matches('"').to_owned())
                             .as_deref()
                             != Some(id)
                 });
@@ -225,9 +241,8 @@ impl Database {
     /// Merge-patch a singleton (PATCH).
     pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value> {
         let mut g = self.write().await;
-        let payload = match g.data.get_mut(resource) {
-            Some(Value::Object(v)) => v,
-            _ => return Err(Error::NotFound),
+        let Some(&mut Value::Object(ref mut payload)) = g.data.get_mut(resource) else {
+            return Err(Error::NotFound);
         };
 
         if let Value::Object(p) = patch {
@@ -271,8 +286,9 @@ pub fn normalize_id(item: &mut Value) {
 
 /// Compare an id value (which may be Number or String) against a string.
 #[must_use]
-pub fn id_matches(item: &Value, id: &str) -> bool {
-    match item.get(id) {
+#[expect(clippy::pattern_type_mismatch)]
+fn id_matches(item: &Value, id: &str) -> bool {
+    match item.get("id") {
         Some(Value::String(v)) => v == id,
         Some(v) => v.to_string().trim_matches('"') == id,
         None => false,
@@ -281,7 +297,7 @@ pub fn id_matches(item: &Value, id: &str) -> bool {
 
 fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>> {
     match g.data.get_mut(resource) {
-        Some(Value::Array(v)) => Ok(v),
+        Some(&mut Value::Array(ref mut v)) => Ok(v),
         Some(_) => Err(Error::NotCollection(resource.to_owned())),
         None => Err(Error::NotFound),
     }
