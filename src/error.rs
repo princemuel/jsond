@@ -40,18 +40,18 @@ pub enum Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
+        let (status, message) = match self {
             Self::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
-            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.to_owned()),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, self.to_string()),
             Self::Conflict => (StatusCode::CONFLICT, self.to_string()),
-            Self::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.to_owned()),
+            Self::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             Self::ReadOnly => (StatusCode::FORBIDDEN, self.to_string()),
             Self::Json(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             Self::Io(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Unknown Error".to_string(),
+                "Unknown Error".to_owned(),
             ),
         };
 
