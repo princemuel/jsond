@@ -1,13 +1,14 @@
-mod cli;
-mod db;
-mod error;
-mod ids;
-mod middleware;
-mod query;
-mod router;
-mod routes;
-mod server;
-mod watcher;
+pub mod cli;
+pub mod db;
+pub mod error;
+pub mod ids;
+pub mod middleware;
+pub mod query;
+pub mod router;
+pub mod routes;
+pub mod server;
+mod telemetry;
+pub mod watcher;
 
 pub use cli::CliArgs;
 pub use db::Database;
