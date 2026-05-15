@@ -65,7 +65,7 @@ impl Default for CliArgs {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-enum CliIdStrategy {
+pub enum CliIdStrategy {
     Int,
     Uuidv4,
     Uuidv7,

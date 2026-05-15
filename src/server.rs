@@ -3,8 +3,8 @@
 
 use core::net::SocketAddr;
 
+use clap::Parser as _;
 use tokio::net::TcpListener;
-use tokio::signal;
 
 use crate::cli::CliArgs;
 use crate::db::Database;
@@ -15,8 +15,10 @@ use crate::{telemetry, watcher};
 pub struct Server;
 
 impl Server {
-    pub async fn run(args: &CliArgs) -> anyhow::Result<()> {
+    pub async fn run() -> anyhow::Result<()> {
         telemetry::init();
+        let args = CliArgs::parse();
+
         let db = Database::load(&args.db, args.id_strategy.into(), args.readonly)?;
         let resources = db.resources().await;
 
@@ -31,12 +33,12 @@ impl Server {
             tracing::info!("watching {} for changes", args.db.display());
         }
 
-        let router = build_router(&db, args);
+        let router = build_router(&db, &args);
 
         let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
         let tcp = TcpListener::bind(&addr).await?;
 
-        print_banner(&addr, args, &resources);
+        print_banner(&addr, &args, &resources);
 
         axum::serve(tcp, router)
             .with_graceful_shutdown(shutdown_signal())
@@ -66,6 +68,7 @@ fn print_banner(addr: &SocketAddr, args: &CliArgs, resources: &[String]) {
     } else {
         println!("  \x1b[1mEndpoints:\x1b[0m");
         println!();
+
         for name in resources {
             println!(
                 "\x1b[90m  >\x1b[0m \x1b[36mhttp://{}:{}/{}\x1b[0m",
@@ -91,8 +94,19 @@ fn print_banner(addr: &SocketAddr, args: &CliArgs, resources: &[String]) {
     println!();
 }
 
-#[expect(clippy::integer_division_remainder_used)]
+/// Waits for a shutdown signal, then allows a brief grace period before
+/// returning.
+///
+///
+/// # Panics
+///
+/// Panics if the OS refuses to install the signal handler. This should only
+/// occur if the process has already registered the maximum number of signal
+/// handlers, which is exceptionally rare in practice.
+#[expect(clippy::expect_used, clippy::integer_division_remainder_used)]
 async fn shutdown_signal() {
+    use tokio::{signal, time};
+
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -101,17 +115,23 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
+        use tokio::signal::unix;
+
+        unix::signal(unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()
             .await;
     };
-
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        () = ctrl_c => {},
+        () = terminate => {},
     }
+
+    tracing::info!("Shutdown signal received, starting graceful shutdown...");
+
+    // Allow time for load balancer to detect
+    time::sleep(time::Duration::from_secs(5)).await;
 }

@@ -1,8 +1,4 @@
-use clap::Parser as _;
-use jsond::{CliArgs, Server};
+use jsond::Server;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let args = CliArgs::parse();
-    Server::run(&args).await
-}
+async fn main() -> anyhow::Result<()> { Server::run().await }
