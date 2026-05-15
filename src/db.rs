@@ -1,239 +1,310 @@
-//! In-memory JSON database with atomic file persistence.
+//! Thread-safe in-memory JSON database with atomic file persistence.
 //!
-//! The database holds a `serde_json::Value` (always an Object at the top
-//! level). Collections are arrays; singletons are objects.
+//! Top-level keys are resource names.
+//! - Value is an array  → collection resource (GET / POST / PUT / PATCH /
+//!   DELETE)
+//! - Value is an object → singleton resource (GET / PUT / PATCH)
 //!
-//! All mutations are written back to disk atomically via a temp-file rename.
+//! Each created item gets an auto-generated ID whose format depends on the
+//! resource id strategy is chosen at startup (uuidv4, uuidv7, or int).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde_json::Value;
-use tokio::sync::RwLock;
-use uuid::Uuid;
+use serde_json::{Map, Value};
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::error::{Error, Result};
+use crate::ids::IdStrategy;
 
-pub type Db = Arc<RwLock<Database>>;
+#[derive(Clone)]
+pub struct Database(Arc<RwLock<Inner>>);
 
-#[derive(Clone, Debug)]
-pub struct Database {
-    pub data: Value,
+#[derive(Clone)]
+pub struct Inner {
+    pub data: Map<String, Value>,
     pub path: PathBuf,
-    pub read_only: bool,
+    pub id_strategy: IdStrategy,
+    pub readonly: bool,
 }
 
 impl Database {
     /// Load a database from a JSON or JSON5 file.
-    pub fn load(path: &Path, read_only: bool) -> Result<Self> {
-        let content = fs::read_to_string(path)?;
-        let data = parse_json_or_json5(&content, path)?;
-
-        if !data.is_object() {
-            return Err(Error::BadRequest("Top-level database value must be a JSON object".into()));
-        }
-
-        tracing::info!("Loaded database from {}", path.display());
-        Ok(Self { data, path: path.to_path_buf(), read_only })
+    pub fn load(path: impl AsRef<Path>, id_strategy: IdStrategy, readonly: bool) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let content = fs::read_to_string(&path)?;
+        let data = parse_db(&content, &path)?;
+        Ok(Self(Arc::new(RwLock::new(Inner {
+            data,
+            path,
+            id_strategy,
+            readonly,
+        }))))
     }
 
     /// Reload from disk (used by file watcher).
-    pub fn reload(&mut self) -> Result<()> {
-        let content = fs::read_to_string(&self.path)?;
-        let data = parse_json_or_json5(&content, &self.path)?;
+    pub async fn reload(&self) -> Result<()> {
+        let mut g = self.write().await;
+        let content = fs::read_to_string(&g.path)?;
 
-        if !data.is_object() {
-            return Err(Error::BadRequest("Top-level database value must be a JSON object".into()));
-        }
-
-        self.data = data;
-        tracing::info!("Reloaded database from {}", self.path.display());
+        g.data = parse_db(&content, &g.path)?;
+        tracing::info!("Reloaded database from {}", g.path.display());
         Ok(())
     }
 
-    /// Persist current state to disk atomically.
-    pub fn persist(&self) -> Result<()> {
-        if self.read_only {
-            return Ok(());
-        }
+    pub async fn read(&self) -> RwLockReadGuard<'_, Inner> { self.0.read().await }
 
-        let json = serde_json::to_string_pretty(&self.data)?;
-        let tmp = self.path.with_extension("json.tmp");
-        fs::write(&tmp, json)?;
-        fs::rename(&tmp, &self.path)?;
-        tracing::debug!("Persisted database to {}", self.path.display());
-        Ok(())
-    }
+    pub async fn write(&self) -> RwLockWriteGuard<'_, Inner> { self.0.write().await }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Collection helpers
-    // ──────────────────────────────────────────────────────────────────────────
+    // ##### Introspection #####
 
     /// Get the names of all top-level keys.
-    pub fn resource_names(&self) -> Vec<String> {
-        self.data.as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default()
-    }
+    pub async fn resources(&self) -> Vec<String> { self.read().await.data.keys().cloned().collect() }
 
     /// is the key an array (`collection`).
-    pub fn is_collection(&self, name: &str) -> bool {
-        self.data.get(name).map(|v| v.is_array()).unwrap_or(false)
+    pub async fn is_collection(&self, resource: &str) -> bool {
+        matches!(self.read().await.data.get(resource), Some(Value::Array(_)))
     }
 
     /// is the key an object (`singleton`).
-    pub fn is_singleton(&self, name: &str) -> bool {
-        self.data.get(name).map(|v| v.is_object()).unwrap_or(false)
+    pub async fn is_singleton(&self, resource: &str) -> bool {
+        matches!(self.read().await.data.get(resource), Some(Value::Object(_)))
+    }
+
+    pub async fn is_resource(&self, resource: &str) -> bool {
+        self.read().await.data.contains_key(resource)
     }
 
     /// Get a collection (array).
-    pub fn get_collection(&self, name: &str) -> Option<Vec<Value>> {
-        self.data.get(name).and_then(|v| v.as_array()).cloned()
+    pub async fn get_collection(&self, resource: &str) -> Option<Vec<Value>> {
+        self.0
+            .read()
+            .await
+            .data
+            .get(resource)
+            .and_then(|v| v.as_array())
+            .cloned()
     }
 
     /// Get a singleton (object).
-    pub fn get_singleton(&self, name: &str) -> Option<Value> {
-        self.data.get(name).filter(|v| v.is_object()).cloned()
+    pub async fn get_singleton(&self, resource: &str) -> Option<Value> {
+        self.0
+            .read()
+            .await
+            .data
+            .get(resource)
+            .filter(|v| v.is_object())
+            .cloned()
     }
 
     /// Find a single item by its `id` field.
-    pub fn find(&self, collection: &str, id: &str) -> Option<Value> {
-        self.get_collection(collection)?
+    pub async fn find(&self, resource: &str, id: &str) -> Option<Value> {
+        self.get_collection(resource)
+            .await?
             .into_iter()
-            .find(|item| item.get("id").map(|v| id_matches(v, id)).unwrap_or(false))
+            .find(|item| id_matches(item, id))
     }
 
     /// Insert a new item, assigning a string id if one is not present.
-    pub fn insert(&mut self, collection: &str, mut item: Value) -> Result<Value> {
-        let arr = self
-            .data
-            .get_mut(collection)
-            .and_then(|v| v.as_array_mut())
-            .ok_or_else(|| Error::NotFound)?;
+    pub async fn insert(&self, resource: &str, mut item: Value) -> Result<Value> {
+        let mut g = self.write().await;
 
-        // Auto-assign id if missing
         if item.get("id").is_none() {
-            item["id"] = Value::String(Uuid::now_v7().as_hyphenated().to_string());
-        } else {
-            // Check for duplicate id
-            let given_id = item["id"].to_owned();
-            let exists = arr.iter().any(|x| x.get("id").map(|v| *v == given_id).unwrap_or(false));
-            if exists {
-                return Err(Error::Conflict);
+            let id = match g.id_strategy {
+                IdStrategy::Int => {
+                    let existing = match g.data.get(resource) {
+                        Some(Value::Array(arr)) => arr.as_slice(),
+                        _ => &[],
+                    };
+                    IdStrategy::int(existing)
+                }
+                other => other.uuid().unwrap(),
+            };
+
+            item.as_object_mut()
+                .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
+                .insert("id".to_owned(), Value::String(id));
+        }
+
+        match g.data.get_mut(resource) {
+            Some(Value::Array(v)) => v.push(item.clone()),
+            Some(_) => return Err(Error::NotCollection(resource.to_owned())),
+            None => {
+                g.data
+                    .insert(resource.to_owned(), Value::Array(vec![item.clone()]));
+            }
+        };
+
+        persist(&g)?;
+        Ok(item)
+    }
+
+    /// Full replace (PUT). Uses the id from the url in the body.
+    pub async fn replace(&self, resource: &str, id: &str, mut item: Value) -> Result<Value> {
+        item.as_object_mut()
+            .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
+            .insert("id".to_owned(), Value::String(id.to_owned()));
+
+        let mut g = self.write().await;
+        let arr = collection_mut(&mut g, resource)?;
+        let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
+
+        arr[pos] = item.clone();
+
+        persist(&g)?;
+        Ok(item)
+    }
+
+    /// Partial update (PATCH). Merges; the `id` is immutable.
+    pub async fn patch(&self, resource: &str, id: &str, patch: Value) -> Result<Value> {
+        let payload = patch
+            .as_object()
+            .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?;
+
+        let mut g = self.write().await;
+        let arr = collection_mut(&mut g, resource)?;
+        let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
+
+        // TODO: needs to use the RFC-7396 JSON Merge Patch.
+        let existing = arr[pos]
+            .as_object_mut()
+            .ok_or_else(|| Error::NotCollection(resource.to_owned()))?;
+
+        for (k, v) in payload {
+            if k != "id" {
+                existing.insert(k.to_owned(), v.clone());
             }
         }
 
-        arr.push(item.clone());
+        let item = arr.get(pos).cloned().ok_or(Error::NotFound)?;
+        persist(&g)?;
         Ok(item)
     }
 
-    /// Full replace of an item (PUT).
-    pub fn replace(&mut self, collection: &str, id: &str, mut item: Value) -> Result<Value> {
-        let arr =
-            self.data.get_mut(collection).and_then(|v| v.as_array_mut()).ok_or(Error::NotFound)?;
+    /// Delete an item. also delete dependents if `dependent_resource` is given
+    pub async fn delete(&self, resource: &str, id: &str, dependent: Option<&str>) -> Result<Value> {
+        let mut g = self.write().await;
+        let arr = collection_mut(&mut g, resource)?;
+        let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
+        let item = arr.remove(pos);
 
-        let pos = arr
-            .iter()
-            .position(|x| x.get("id").map(|v| id_matches(v, id)).unwrap_or(false))
-            .ok_or(Error::NotFound)?;
+        // Cascading: remove all items in `dependent` where `<resource_singular>Id ==
+        // id`
+        if let Some(key) = dependent {
+            let fk = format!("{}Id", singular(resource));
 
-        // Preserve the id
-        item["id"] = arr[pos]["id"].to_owned();
-        arr[pos] = item.clone();
+            if let Some(Value::Array(v)) = g.data.get_mut(key) {
+                v.retain(|item| {
+                    item.get(&fk).and_then(Value::as_str) != Some(id)
+                        && item
+                            .get(&fk)
+                            .map(|v| v.to_string().trim_matches('"').to_string())
+                            .as_deref()
+                            != Some(id)
+                });
+            }
+        }
+
+        persist(&g)?;
         Ok(item)
-    }
-
-    /// Partial update of an item (PATCH).
-    pub fn patch(&mut self, collection: &str, id: &str, patch: Value) -> Result<Value> {
-        let arr =
-            self.data.get_mut(collection).and_then(|v| v.as_array_mut()).ok_or(Error::NotFound)?;
-
-        let pos = arr
-            .iter()
-            .position(|x| x.get("id").map(|v| id_matches(v, id)).unwrap_or(false))
-            .ok_or(Error::NotFound)?;
-
-        merge_json(&mut arr[pos], patch);
-        Ok(arr[pos].clone())
-    }
-
-    /// Delete an item.
-    pub fn delete(&mut self, collection: &str, id: &str) -> Result<Value> {
-        let arr =
-            self.data.get_mut(collection).and_then(|v| v.as_array_mut()).ok_or(Error::NotFound)?;
-
-        let pos = arr
-            .iter()
-            .position(|x| x.get("id").map(|v| id_matches(v, id)).unwrap_or(false))
-            .ok_or(Error::NotFound)?;
-
-        Ok(arr.remove(pos))
     }
 
     /// Replace a singleton entirely (PUT).
-    pub fn replace_singleton(&mut self, name: &str, item: Value) -> Result<Value> {
-        let slot = self.data.get_mut(name).filter(|v| v.is_object()).ok_or(Error::NotFound)?;
-        *slot = item.clone();
+    pub async fn replace_singleton(&self, resource: &str, item: Value) -> Result<Value> {
+        let mut g = self.write().await;
+        if !matches!(g.data.get(resource), Some(Value::Object(_))) {
+            return Err(Error::NotFound);
+        }
+        g.data.insert(resource.to_owned(), item.clone());
+
+        persist(&g)?;
         Ok(item)
     }
 
     /// Merge-patch a singleton (PATCH).
-    pub fn patch_singleton(&mut self, name: &str, patch: Value) -> Result<Value> {
-        let slot = self.data.get_mut(name).filter(|v| v.is_object()).ok_or(Error::NotFound)?;
-        merge_json(slot, patch);
-        Ok(slot.clone())
-    }
+    pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value> {
+        let mut g = self.write().await;
+        let payload = match g.data.get_mut(resource) {
+            Some(Value::Object(v)) => v,
+            _ => return Err(Error::NotFound),
+        };
 
-    /// Initialise a new, empty collection if the key is absent.
-    pub fn ensure_collection(&mut self, name: &str) {
-        self.data.get(name).unwrap_or_default();
-        // if self.data.get(name).is_none() {
-        //     self.data[name] = json!([]);
-        // }
+        if let Value::Object(p) = patch {
+            payload.extend(p);
+        }
+
+        let item = Value::Object(payload.clone());
+        persist(&g)?;
+        Ok(item)
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────────────
+fn parse_db(raw: &str, path: &Path) -> Result<Map<String, Value>> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let value: Value = if ext == "json5" {
+        json5::from_str(raw).map_err(|e| Error::BadRequest(e.to_string()))?
+    } else {
+        serde_json::from_str(raw)
+            .or_else(|_e| json5::from_str(raw))
+            .map_err(|e| Error::BadRequest(e.to_string()))?
+    };
+
+    value.as_object().cloned().ok_or_else(|| {
+        Error::BadRequest("top-level JSON must be an object, e.g { \"posts\": [...] }".into())
+    })
+}
+
+/// Ensure the `id` field is stored as a string
+pub fn normalize_id(item: &mut Value) {
+    if let Some(obj) = item.as_object_mut()
+        && let Some(id) = obj.get("id").cloned()
+    {
+        let s = match id {
+            Value::String(v) => v,
+            v => v.to_string(),
+        };
+
+        obj.insert("id".to_owned(), Value::String(s));
+    }
+}
 
 /// Compare an id value (which may be Number or String) against a string.
-pub fn id_matches(value: &Value, id: &str) -> bool {
-    match value {
-        Value::String(s) => s == id,
-        _ => false,
+#[must_use]
+pub fn id_matches(item: &Value, id: &str) -> bool {
+    match item.get(id) {
+        Some(Value::String(v)) => v == id,
+        Some(v) => v.to_string().trim_matches('"') == id,
+        None => false,
     }
 }
 
-/// RFC-7396 JSON Merge Patch.
-#[expect(clippy::else_if_without_else)]
-fn merge_json(target: &mut Value, patch: Value) {
-    if let Value::Object(pmap) = patch {
-        let tmap = target.as_object_mut().get_or_insert_default();
-        for (k, v) in pmap {
-            if v.is_null() {
-                tmap.remove(&k);
-            } else if let Some(existing) = tmap.get_mut(&k) {
-                if existing.is_object() && v.is_object() {
-                    merge_json(existing, v);
-                    continue;
-                }
-            }
-
-            // Simple insert / replace
-            if let Some(map) = target.as_object_mut() {
-                if !v.is_null() {
-                    map.insert(k, v);
-                }
-            }
-        }
+fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>> {
+    match g.data.get_mut(resource) {
+        Some(Value::Array(v)) => Ok(v),
+        Some(_) => Err(Error::NotCollection(resource.to_owned())),
+        None => Err(Error::NotFound),
     }
 }
 
-fn parse_json_or_json5(content: &str, path: &Path) -> Result<Value> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if ext == "json5" {
-        json5::from_str(content).map_err(|e| Error::BadRequest(e.to_string()))
-    } else {
-        serde_json::from_str(content).map_err(|e| Error::BadRequest(e.to_string()))
-    }
+fn find_pos(arr: &[Value], id: &str) -> Option<usize> {
+    arr.iter().position(|item| id_matches(item, id))
 }
+
+fn persist(g: &Inner) -> Result<()> {
+    if !g.readonly {
+        let tmp = g.path.with_extension("json.tmp");
+        let json = serde_json::to_string_pretty(&g.data)?;
+
+        fs::write(&tmp, json)?;
+        fs::rename(&tmp, &g.path)?;
+
+        tracing::debug!("Persisted database to {}", g.path.display());
+    }
+
+    Ok(())
+}
+
+/// naive singularizer: strips trailing `s`.
+/// `posts` -> `post`, `comments` -> `comment`
+fn singular(s: &str) -> &str { s.strip_suffix("s").unwrap_or(s) }

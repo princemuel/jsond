@@ -1,60 +1,65 @@
-//! Query parameter parsing and application.
+//! Query parameter parsing and application — full json-server v1 spec.
 //!
-//! Supports the full json-server v1 query spec:
+//! ## Filter syntax: `field:op=value`
+//! Operators: (none)/eq, ne, lt, lte, gt, gte, in, contains, startsWith,
+//! endsWith Nested paths: `author.name:eq=typicode`
 //!
-//! ## Filtering
-//! - `field=value`               — exact equality
-//! - `field:eq=value`            — explicit equality
-//! - `field:ne=value`            — not equal
-//! - `field:gt=value`            — greater than
-//! - `field:gte=value`           — greater than or equal
-//! - `field:lt=value`            — less than
-//! - `field:lte=value`           — less than or equal
-//! - `field:in=a,b,c`            — value in list
-//! - `field:nin=a,b,c`           — value not in list
-//! - `field:contains=substr`     — string contains (case-insensitive)
-//! - `field:startsWith=prefix`   — string starts with
-//! - `field:endsWith=suffix`     — string ends with
-//! - `field:matches=regex`       — regex
-//! - Nested paths: `author.name:eq=typicode`
+//! ## Sort: `_sort=field,-other`
+//! Comma-separated; `-` prefix = descending. Supports dotted paths.
 //!
-//! ## Sorting
-//! `_sort=field,-other_field`    — comma-separated; `-` prefix = descending
+//! ## Pagination (mutually exclusive):
+//! - Page-based:  `_page=1&_per_page=25`  → envelope {
+//!   first,prev,next,last,pages,items,data }
+//! - Slice-based: `_start=0&_end=10`       → plain array + X-Total-Count
+//!   `_start=0&_limit=10`      → plain array + X-Total-Count
 //!
-//! ## Pagination
-//! `_page=1&_per_page=10`        — page-based pagination
-//! `_start=0&_end=10`            — slice-based pagination
-//! `_start=0&_limit=10`          — slice with limit
+//! ## Relations:
+//! - `_embed=comments`  → inline child records (hasMany: items where childId ==
+//!   parent id)
+//! - `_embed=post`      → inline parent record (belongsTo: item where id ==
+//!   child's postId)
 //!
-//! ## Embedding relations
-//! `_embed=comments`             — embed child records (hasMany)
-//! `_expand=author`              — embed parent record (belongsTo)
+//! ## Complex filter:
+//! `_where={"or":[{"views":{"gt":100}},{"author":{"name":{"lt":"m"}}}]}`
+//! Overrides individual field filter params when valid JSON.
 
 use core::cmp::Ordering;
-use core::convert::Infallible;
-use core::str::FromStr;
 use std::collections::HashMap;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-#[derive(Clone, Debug, Default)]
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Default)]
 pub struct QueryParams {
+    pub sort: Vec<SortKey>,
+    pub page: Option<usize>,
+    pub per_page: usize,
+    pub start: Option<usize>,
+    pub end: Option<usize>,
+    pub limit: Option<usize>,
+    pub search: Option<String>,
     pub filters: Vec<Filter>,
-    pub sort: Vec<SortField>,
-    pub pagination: Pagination,
-    pub embed: Vec<String>,
-    pub expand: Vec<String>,
+    pub r#where: Option<WhereExpr>,
+    pub embed: Vec<String>,  // _embed: hasMany (children)
+    pub expand: Vec<String>, // _expand: belongsTo (parent)
+}
+
+#[derive(Clone, Debug)]
+pub struct SortKey {
+    pub path: Vec<String>, // dotted path split into segments
+    pub desc: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct Filter {
-    pub path: Vec<String>, // nested path split by '.'
-    pub operator: Operator,
+    pub path: Vec<String>,
+    pub op: Op,
     pub value: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Operator {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Op {
     Eq,
     Ne,
     Gt,
@@ -66,464 +71,410 @@ pub enum Operator {
     Contains,
     StartsWith,
     EndsWith,
-    Matches,
+    // Matches,
 }
-impl FromStr for Operator {
-    type Err = Infallible;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let op = match s.to_lowercase().trim() {
-            "eq" => Operator::Eq,
-            "ne" => Operator::Ne,
-            "gt" => Operator::Gt,
-            "gte" => Operator::Gte,
-            "lt" => Operator::Lt,
-            "lte" => Operator::Lte,
-            "in" => Operator::In,
-            "nin" => Operator::Nin,
-            "contains" => Operator::Contains,
-            "startswith" => Operator::StartsWith,
-            "endswith" => Operator::EndsWith,
-            "matches" => Operator::Matches,
-            _ => Operator::Eq, // Fallback
-        };
-        Ok(op)
+/// Represents a `_where` expression node.
+#[derive(Debug, Clone)]
+pub enum WhereExpr {
+    And(Vec<WhereExpr>),
+    Or(Vec<WhereExpr>),
+    /// Leaf: field path, operator, value string
+    Cond(Filter),
+}
+
+// ── Parse ─────────────────────────────────────────────────────────────────────
+
+pub fn parse(raw: &HashMap<String, String>) -> QueryParams {
+    let mut qp = QueryParams {
+        per_page: 10,
+        ..Default::default()
+    };
+
+    for (k, v) in raw {
+        match k.as_str() {
+            "_sort" => qp.sort = parse_sort(v),
+            "_page" => qp.page = v.parse().ok(),
+            "_per_page" => qp.per_page = v.parse().unwrap_or(10).max(1),
+            "_start" => qp.start = v.parse().ok(),
+            "_end" => qp.end = v.parse().ok(),
+            "_limit" => qp.limit = v.parse().ok(),
+            "q" => qp.search = Some(v.to_owned()),
+            "_embed" => qp
+                .embed
+                .extend(v.split(',').map(str::trim).map(String::from)),
+            "_expand" => qp
+                .expand
+                .extend(v.split(',').map(str::trim).map(String::from)),
+            "_where" => qp.r#where = parse_where(v),
+            "_dependent" => {} // handled in the delete handler, not query
+            key => {
+                if let Some(filter) = parse_filter(key, v) {
+                    qp.filters.push(filter);
+                }
+            }
+        }
+    }
+    qp
+}
+
+/// `_sort=title,-views,author.name`
+fn parse_sort(s: &str) -> Vec<SortKey> {
+    s.split(',')
+        .filter(|p| !p.is_empty())
+        .map(|seg| {
+            let segment = seg.trim();
+            let (desc, field) = if segment.starts_with('-') {
+                (true, &segment[1..])
+            } else {
+                (false, segment)
+            };
+            SortKey {
+                desc,
+                path: dotted(field),
+            }
+        })
+        .collect()
+}
+
+/// `author.name:gte=foo`  or  `views=100` (no operator = eq)
+fn parse_filter(key: &str, value: &str) -> Option<Filter> {
+    // Split on `:` to separate path from operator
+    let (path, op) = if let Some((path, op)) = key.split_once(':') {
+        (path, parse_op(op)?)
+    } else {
+        (key, Op::Eq)
+    };
+
+    // Skip internal underscore params that sneak through
+    if path.starts_with('_') {
+        return None;
+    }
+
+    Some(Filter {
+        path: dotted(path),
+        op,
+        value: value.to_owned(),
+    })
+}
+
+fn parse_op(s: &str) -> Option<Op> {
+    Some(match s.to_lowercase().trim() {
+        "eq" => Op::Eq,
+        "ne" => Op::Ne,
+        "gt" => Op::Gt,
+        "gte" => Op::Gte,
+        "lt" => Op::Lt,
+        "lte" => Op::Lte,
+        "in" => Op::In,
+        "nin" => Op::Nin,
+        "contains" => Op::Contains,
+        "startswith" => Op::StartsWith,
+        "endswith" => Op::EndsWith,
+        // "matches" => Op::Matches,
+        _ => return None,
+    })
+}
+
+/// Parse `_where` JSON into a `WhereExpr` tree.
+/// Shape: `{"or":[{"field":{"op":value}}, ...]}`  or  `{"and":[...]}`
+/// Unknown / malformed JSON is silently ignored (filters fall back to params).
+fn parse_where(s: &str) -> Option<WhereExpr> {
+    let v: Value = serde_json::from_str(s).ok()?;
+    json_to_expr(&v)
+}
+
+fn json_to_expr(v: &Value) -> Option<WhereExpr> {
+    let obj = v.as_object()?;
+
+    if let Some(arr) = obj.get("or").and_then(Value::as_array) {
+        let children: Vec<_> = arr.iter().filter_map(json_to_expr).collect();
+        return Some(WhereExpr::Or(children));
+    }
+
+    if let Some(arr) = obj.get("and").and_then(Value::as_array) {
+        let children: Vec<_> = arr.iter().filter_map(json_to_expr).collect();
+        return Some(WhereExpr::And(children));
+    }
+
+    // Otherwise treat as { field: { op: value } }
+    // e.g. {"views": {"gt": 100}}  or  {"author": {"name": {"lt": "m"}}}
+    let mut conds = Vec::new();
+    collect_leaf_conds(obj, &mut Vec::new(), &mut conds);
+
+    match conds.len() {
+        0 => None,
+        1 => Some(conds.remove(0)),
+        _ => Some(WhereExpr::And(conds)),
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SortField {
-    pub path: Vec<String>,
-    pub descending: bool,
+/// Recurse `{"a": {"b": {"gt": "m"}}}` into path=["a","b"], op=Gt, value="m"
+#[expect(clippy::else_if_without_else)]
+fn collect_leaf_conds(obj: &Map<String, Value>, path: &mut Vec<String>, out: &mut Vec<WhereExpr>) {
+    for (k, v) in obj {
+        if let Some(op) = parse_op(k) {
+            let value = match v {
+                Value::String(v) => v.to_owned(),
+                v => v.to_string(),
+            };
+
+            out.push(WhereExpr::Cond(Filter {
+                path: path.to_vec(),
+                op,
+                value,
+            }));
+        } else if let Some(child_obj) = v.as_object() {
+            path.push(k.to_owned());
+            collect_leaf_conds(child_obj, path, out);
+            path.pop();
+        }
+    }
+
+    for (k, v) in obj {
+        match (parse_op(k), v) {
+            (Some(op), value) => {
+                // leaf: value must be scalar (string/number/bool/null); arrays and objects are
+                // not supported as filter values
+                let value = match value {
+                    Value::String(v) => v.to_owned(),
+                    v => v.to_string(),
+                };
+
+                out.push(WhereExpr::Cond(Filter {
+                    path: path.clone(),
+                    op,
+                    value,
+                }));
+            }
+
+            (None, Value::Object(child)) => {
+                path.push(k.to_owned());
+                collect_leaf_conds(child, path, out);
+                path.pop();
+            }
+
+            _ => {}
+        }
+    }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy)]
 pub enum Pagination {
-    #[default]
     None,
     Page {
         page: usize,
         per_page: usize,
+        total: usize,
     },
     Slice {
         start: usize,
-        end: Option<usize>,
-        limit: Option<usize>,
+        total: usize,
     },
 }
 
-#[derive(Clone)]
-pub struct PaginatedResult {
-    pub data: Vec<Value>,
-    pub total: usize,
-    pub page: Option<usize>,
-    pub per_page: Option<usize>,
-    pub pages: Option<usize>,
-    pub first: Option<usize>,
-    pub prev: Option<usize>,
-    pub next: Option<usize>,
-    pub last: Option<usize>,
+pub struct QueryResult {
+    pub items: Vec<Value>,
+    pub pagination: Pagination,
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Parsing
-// ──────────────────────────────────────────────────────────────────────────────
-
-const RESERVED_PARAMS: &[&str] =
-    &["_sort", "_page", "_per_page", "_start", "_end", "_limit", "_embed", "_expand"];
-
-#[expect(clippy::else_if_without_else)]
-pub fn parse_query(raw: &HashMap<String, String>, default_per_page: usize) -> QueryParams {
-    let mut params = QueryParams::default();
-
-    // Sorting
-    if let Some(sort) = raw.get("_sort") {
-        for part in sort.split(',') {
-            let part = part.trim();
-
-            let (descending, field) =
-                if part.starts_with('-') { (true, &part[1..]) } else { (false, part) };
-            params
-                .sort
-                .push(SortField { path: field.split('.').map(String::from).collect(), descending });
+pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
+    // 1. Filtering — _where overrides individual field params if present
+    if let Some(expr) = &qp.r#where {
+        items.retain(|item| eval_where(item, expr));
+    } else {
+        for f in &qp.filters {
+            items.retain(|item| matches_filter(item, f));
         }
     }
 
-    // Pagination — page-based
-    if let Some(page) = raw.get("_page") {
-        let page = page.parse().unwrap_or(1).max(1);
-        let per_page =
-            raw.get("_per_page").and_then(|s| s.parse().ok()).unwrap_or(default_per_page);
-        params.pagination = Pagination::Page { page, per_page };
-    } else if raw.contains_key("_start") || raw.contains_key("_limit") {
-        // Slice-based
-        let start = raw.get("_start").and_then(|s| s.parse().ok()).unwrap_or(0);
-        let end = raw.get("_end").and_then(|s| s.parse().ok());
-        let limit = raw.get("_limit").and_then(|s| s.parse().ok());
-        params.pagination = Pagination::Slice { start, end, limit };
+    // 2. Full-text search
+    if let Some(q) = &qp.search {
+        let q = q.to_lowercase();
+        items.retain(|item| full_text(item, &q));
     }
 
-    // Embeds / expands
-    if let Some(embed) = raw.get("_embed") {
-        params.embed = embed.split(',').map(|s| s.trim().to_string()).collect();
-    }
+    let total = items.len();
 
-    if let Some(expand) = raw.get("_expand") {
-        params.expand = expand.split(',').map(|s| s.trim().to_string()).collect();
-    }
-
-    // Filters — every non-reserved param
-    for (key, value) in raw {
-        if RESERVED_PARAMS.contains(&key.as_str()) {
-            continue;
-        }
-
-        // Detect `field:operator` syntax
-        if let Some(colon_pos) = key.find(':') {
-            let field = &key[..colon_pos];
-            let op = &key[colon_pos + 1..];
-            let Ok(operator) = op.parse();
-
-            params.filters.push(Filter {
-                path: field.split('.').map(String::from).collect(),
-                operator,
-                value: value.to_owned(),
-            });
-        } else {
-            // Plain equality filter
-            params.filters.push(Filter {
-                path: key.split('.').map(String::from).collect(),
-                operator: Operator::Eq,
-                value: value.to_owned(),
-            });
-        }
-    }
-
-    params
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Application
-// ──────────────────────────────────────────────────────────────────────────────
-
-pub fn apply_query(items: Vec<Value>, params: &QueryParams) -> PaginatedResult {
-    // 1. Filter
-    let mut items: Vec<Value> =
-        items.into_iter().filter(|item| apply_filters(item, &params.filters)).collect();
-
-    // 2. Sort
-    if !params.sort.is_empty() {
+    // 3. Sort — stable, multi-key, dot-path aware
+    if !qp.sort.is_empty() {
         items.sort_by(|a, b| {
-            for sort_field in &params.sort {
-                let va = get_path(a, sort_field.path.iter());
-                let vb = get_path(b, sort_field.path.iter());
-                let cmp = compare_values(&va, &vb);
-                let cmp = if sort_field.descending { cmp.reverse() } else { cmp };
-                if cmp != Ordering::Equal {
-                    return cmp;
+            for sk in &qp.sort {
+                let av = sortable(get_nested(a, &sk.path));
+                let bv = sortable(get_nested(b, &sk.path));
+                let ord = av.partial_cmp(&bv).unwrap_or(Ordering::Equal);
+                if ord != Ordering::Equal {
+                    return if sk.desc { ord.reverse() } else { ord };
                 }
             }
             Ordering::Equal
         });
     }
 
-    let total = items.len();
+    // 4. Pagination — page-based xor slice-based
+    if qp.page.is_some() {
+        let page = qp.page.unwrap_or(1).max(1);
+        let per_page = qp.per_page;
+        let start = (page - 1) * per_page;
 
-    // 3. Paginate
-    match &params.pagination {
-        Pagination::None => PaginatedResult {
-            data: items,
-            total,
-            page: None,
-            per_page: None,
-            pages: None,
-            first: None,
-            prev: None,
-            next: None,
-            last: None,
-        },
+        items = items.into_iter().skip(start).take(per_page).collect();
 
-        Pagination::Page { page, per_page } => {
-            let pages = if *per_page == 0 { 1 } else { (total + per_page - 1) / per_page };
-            let start = (*page - 1) * per_page;
-            let data: Vec<Value> = items.into_iter().skip(start).take(*per_page).collect();
-
-            PaginatedResult {
-                data,
+        QueryResult {
+            items,
+            pagination: Pagination::Page {
+                page,
+                per_page,
                 total,
-                page: Some(*page),
-                per_page: Some(*per_page),
-                pages: Some(pages),
-                first: Some(1),
-                prev: if *page > 1 { Some(*page - 1) } else { None },
-                next: if *page < pages { Some(*page + 1) } else { None },
-                last: Some(pages),
-            }
+            },
         }
+    } else if qp.start.is_some() || qp.end.is_some() || qp.limit.is_some() {
+        let start = qp.start.unwrap_or(0);
+        let end = qp
+            .end
+            .unwrap_or_else(|| qp.limit.map(|l| start + l).unwrap_or(total));
+        let slice_len = end.saturating_sub(start).min(total.saturating_sub(start));
 
-        Pagination::Slice { start, end, limit } => {
-            let start = (*start).min(total);
-            let end = match (end, limit) {
-                (Some(e), _) => (*e).min(total),
-                (None, Some(l)) => (start + l).min(total),
-                (None, None) => total,
-            };
-            let data: Vec<Value> = items.into_iter().skip(start).take(end - start).collect();
-            PaginatedResult {
-                data,
-                total,
-                page: None,
-                per_page: None,
-                pages: None,
-                first: None,
-                prev: None,
-                next: None,
-                last: None,
-            }
+        items = items.into_iter().skip(start).take(slice_len).collect();
+
+        QueryResult {
+            items,
+            pagination: Pagination::Slice { start, total },
         }
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Filter evaluation
-// ──────────────────────────────────────────────────────────────────────────────
-
-fn apply_filters(item: &Value, filters: &[Filter]) -> bool {
-    filters.iter().all(|f| apply_filter(item, f))
-}
-
-fn apply_filter(item: &Value, filter: &Filter) -> bool {
-    let field_val = get_path(item, filter.path.iter());
-
-    match filter.operator {
-        Operator::Eq => value_eq(&field_val, &filter.value),
-        Operator::Ne => !value_eq(&field_val, &filter.value),
-        Operator::Gt => compare_to_string(&field_val, &filter.value) == Some(Ordering::Greater),
-        Operator::Gte => matches!(
-            compare_to_string(&field_val, &filter.value),
-            Some(Ordering::Greater | Ordering::Equal)
-        ),
-        Operator::Lt => compare_to_string(&field_val, &filter.value) == Some(Ordering::Less),
-        Operator::Lte => matches!(
-            compare_to_string(&field_val, &filter.value),
-            Some(Ordering::Less | Ordering::Equal)
-        ),
-        Operator::In => filter.value.split(',').any(|v| value_eq(&field_val, v.trim())),
-        Operator::Nin => !filter.value.split(',').any(|v| value_eq(&field_val, v.trim())),
-        Operator::Contains => value_as_str(&field_val)
-            .map(|s| s.to_lowercase().contains(&filter.value.to_lowercase()))
-            .unwrap_or(false),
-        Operator::StartsWith => value_as_str(&field_val)
-            .map(|s| s.to_lowercase().starts_with(&filter.value.to_lowercase()))
-            .unwrap_or(false),
-        Operator::EndsWith => value_as_str(&field_val)
-            .map(|s| s.to_lowercase().ends_with(&filter.value.to_lowercase()))
-            .unwrap_or(false),
-        Operator::Matches => {
-            // Very basic regex via stdlib; for full regex add the `regex` crate
-            value_as_str(&field_val).map(|s| simple_match(&s, &filter.value)).unwrap_or(false)
-        }
-    }
-}
-
-/// Walk a dotted path into a JSON value.
-fn get_path<'a>(item: &'a Value, path: impl Iterator<Item = &'a String>) -> Option<&'a Value> {
-    let mut current = item;
-    for key in path {
-        current = current.get(key)?;
-    }
-    Some(current)
-}
-
-fn value_as_str(val: &Option<&Value>) -> Option<String> {
-    val.map(|v| match v {
-        Value::String(s) => s.to_owned(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => "null".into(),
-        _ => v.to_string(),
-    })
-}
-
-fn value_to_string(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.to_owned(),
-        Value::Number(n) => n.to_string(),
-        _ => v.to_string(),
-    }
-}
-
-fn value_eq(field: &Option<&Value>, target: &str) -> bool {
-    match field {
-        None => false,
-        Some(Value::String(s)) => s == target,
-        Some(Value::Number(n)) => n.to_string() == target,
-        Some(Value::Bool(b)) => b.to_string() == target,
-        Some(Value::Null) => target == "null",
-        Some(v) => v.to_string() == target,
-    }
-}
-
-fn compare_to_string(field: &Option<&Value>, target: &str) -> Option<Ordering> {
-    let (f_num, t_num) = (field.and_then(|v| v.as_f64()), target.parse::<f64>().ok());
-
-    match (f_num, t_num) {
-        (Some(f), Some(t)) => f.partial_cmp(&t),
-        _ => {
-            // Fall back to lexicographic comparison
-            let fs = value_as_str(field)?;
-            Some(fs.as_str().cmp(target))
-        }
-    }
-}
-
-fn compare_values(a: &Option<&Value>, b: &Option<&Value>) -> Ordering {
-    let (a_num, b_num) = (a.and_then(|v| v.as_f64()), b.and_then(|v| v.as_f64()));
-
-    match (a_num, b_num) {
-        (Some(an), Some(bn)) => an.partial_cmp(&bn).unwrap_or(Ordering::Equal),
-        _ => {
-            let a = value_as_str(a).unwrap_or_default();
-            let b = value_as_str(b).unwrap_or_default();
-            a.cmp(&b)
-        }
-    }
-}
-
-/// Naive wildcard match (* and ?) — avoids adding regex crate dependency.
-/// Users can add the `regex` crate for full regex support.
-fn simple_match(s: &str, pattern: &str) -> bool {
-    // If pattern has no wildcards, treat as substring search (case-insensitive)
-    if !pattern.contains('*') && !pattern.contains('?') {
-        return s.to_lowercase().contains(&pattern.to_lowercase());
-    }
-    wildcard_match(s, pattern)
-}
-
-fn wildcard_match(s: &str, pattern: &str) -> bool {
-    let s: Vec<char> = s.chars().collect();
-    let p: Vec<char> = pattern.chars().collect();
-    let mut dp = vec![vec![false; p.len() + 1]; s.len() + 1];
-    dp[0][0] = true;
-    for j in 1..=p.len() {
-        if p[j - 1] == '*' {
-            dp[0][j] = dp[0][j - 1];
-        }
-    }
-
-    for i in 1..=s.len() {
-        for j in 1..=p.len() {
-            dp[i][j] = match p[j - 1] {
-                '*' => dp[i - 1][j] || dp[i][j - 1],
-                '?' => dp[i - 1][j - 1],
-                c => {
-                    dp[i - 1][j - 1]
-                        && (c == s[i - 1]
-                            || c.to_lowercase().next() == s[i - 1].to_lowercase().next())
-                }
-            };
-        }
-    }
-    dp[s.len()][p.len()]
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Embedding
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Embed child collections (hasMany).
-/// e.g. `_embed=comments` on `/posts/{id}` → each post gets a `comments` array
-/// containing comments where `postId` == the post's id.
-pub fn embed_children(
-    items: &mut Vec<Value>,
-    data: &serde_json::Map<String, Value>,
-    embed: impl Iterator<Item = String>,
-) {
-    for collection_name in embed {
-        let children = match data.get(&collection_name) {
-            Some(Value::Array(arr)) => arr.clone(),
-            _ => continue,
-        };
-
-        for item in items.iter_mut() {
-            let item_id = match item.get("id") {
-                Some(v) => value_to_string(v),
-                None => continue,
-            };
-
-            // Convention: foreignKey = singularised collection + "Id"
-            // e.g. posts → postId, comments → commentId
-            // We also try the resource name without trailing 's' (naïve singularise)
-            let fk_candidates = fk_candidates_for(&collection_name);
-
-            let embedded: Vec<Value> = children
-                .iter()
-                .filter(|child| {
-                    fk_candidates.iter().any(|fk| {
-                        child.get(fk).map(|v| value_to_string(v) == item_id).unwrap_or(false)
-                    })
-                })
-                .cloned()
-                .collect();
-
-            if let Some(obj) = item.as_object_mut() {
-                obj.insert(collection_name.clone(), Value::Array(embedded));
-            }
-        }
-    }
-}
-
-/// Expand a parent record (belongsTo).
-/// e.g. `_expand=user` on `/posts` → each post with `userId` gets a `user`
-/// field containing the matching user object.
-pub fn expand_parents(
-    items: &mut Vec<Value>,
-    all_data: &serde_json::Map<String, Value>,
-    expand: impl Iterator<Item = String>,
-) {
-    for parent_name in expand {
-        // Find the parent collection (try singular, then plural)
-        let parent_collection = find_parent_collection(all_data, &parent_name);
-        let parent_arr = match parent_collection {
-            Some(Value::Array(arr)) => arr.clone(),
-            _ => continue,
-        };
-
-        let fk = format!("{}Id", parent_name);
-
-        for item in items.iter_mut() {
-            let parent_id = match item.get(&fk) {
-                Some(v) => value_to_string(v),
-                None => continue,
-            };
-
-            let parent = parent_arr
-                .iter()
-                .find(|p| p.get("id").map(|v| value_to_string(v) == parent_id).unwrap_or(false))
-                .cloned();
-
-            if let (Some(parent), Some(obj)) = (parent, item.as_object_mut()) {
-                obj.insert(parent_name.to_owned(), parent);
-            }
-        }
-    }
-}
-
-fn fk_candidates_for(collection: &str) -> Vec<String> {
-    let singular = if collection.ends_with("ies") {
-        format!("{}yId", &collection[..collection.len() - 3])
-    } else if collection.ends_with('s') {
-        format!("{}Id", &collection[..collection.len() - 1])
     } else {
-        format!("{}Id", collection)
-    };
-    vec![singular, format!("{}Id", collection)]
+        QueryResult {
+            items,
+            pagination: Pagination::None,
+        }
+    }
 }
 
-fn find_parent_collection<'a>(
-    data: &'a serde_json::Map<String, Value>,
-    name: &str,
-) -> Option<&'a Value> {
-    // Try exact match, then plural
-    data.get(name).or_else(|| data.get(&format!("{}s", name)))
+// ── _where evaluation
+fn eval_where(item: &Value, expr: &WhereExpr) -> bool {
+    match expr {
+        WhereExpr::And(v) => v.iter().all(|exp| eval_where(item, exp)),
+        WhereExpr::Or(v) => v.iter().any(|exp| eval_where(item, exp)),
+        WhereExpr::Cond(Filter { path, op, value }) => matches_op(get_nested(item, path), op, value),
+    }
+}
+
+//   Filter matching
+
+fn matches_filter(item: &Value, f: &Filter) -> bool {
+    matches_op(get_nested(item, &f.path), &f.op, &f.value)
+}
+
+fn matches_op(val: Option<&Value>, op: &Op, target: &str) -> bool {
+    match op {
+        Op::Eq => eq_str(val, target),
+        Op::Ne => !eq_str(val, target),
+
+        Op::Gt => cmp_val(val, target) == Ordering::Greater,
+        Op::Gte => matches!(cmp_val(val, target), Ordering::Greater | Ordering::Equal),
+
+        Op::Lt => cmp_val(val, target) == Ordering::Less,
+        Op::Lte => matches!(cmp_val(val, target), Ordering::Less | Ordering::Equal),
+
+        Op::In => {
+            let mut targets = target.split(',').map(str::trim);
+            targets.any(|t| eq_str(val, t))
+        }
+        Op::Nin => {
+            let mut targets = target.split(',').map(str::trim);
+            !targets.any(|t| eq_str(val, t))
+        }
+
+        Op::Contains => str_op(val, target, |s, t| s.contains(t)),
+        Op::StartsWith => str_op(val, target, |s, t| s.starts_with(t)),
+        Op::EndsWith => str_op(val, target, |s, t| s.ends_with(t)),
+        // Op::Matches => unimplemented!(),
+    }
+}
+
+fn eq_str(val: Option<&Value>, target: &str) -> bool {
+    match val {
+        Some(Value::String(v)) => v == target,
+        Some(Value::Number(v)) => v.to_string() == target,
+        Some(Value::Bool(v)) => v.to_string() == target,
+        Some(Value::Null) => target == "null",
+        // TODO: should i add this? Some(v) => v.to_string() == target,
+        _ => false,
+    }
+}
+
+/// Returns negative/zero/positive: prefers numeric, falls back to string.
+fn cmp_val(val: Option<&Value>, target: &str) -> Ordering {
+    let to_f64 = |v: Option<&Value>| match v {
+        Some(Value::Number(n)) => n.as_f64(),
+        Some(Value::String(s)) => s.parse().ok(),
+        _ => None,
+    };
+
+    if let (Some(a), Ok(b)) = (to_f64(val), target.parse()) {
+        return a.partial_cmp(&b).unwrap_or(Ordering::Equal);
+    }
+
+    let a = val.map(Value::to_string).unwrap_or_default();
+    a.as_str().cmp(target)
+}
+
+/// Case-insensitive string operation (contains / startsWith / endsWith).
+fn str_op(val: Option<&Value>, target: &str, f: impl Fn(&str, &str) -> bool) -> bool {
+    let t = target.to_lowercase();
+    match val {
+        Some(Value::String(v)) => f(&v.to_lowercase(), &t),
+        Some(v) => f(&v.to_string().to_lowercase(), &t),
+        None => false,
+    }
+}
+
+//   Full-text searchWW
+fn full_text(v: &Value, q: &str) -> bool {
+    match v {
+        Value::Object(map) => map.values().any(|v| full_text(v, q)),
+        Value::Array(arr) => arr.iter().any(|v| full_text(v, q)),
+        Value::String(s) => s.to_lowercase().contains(q),
+        other => other.to_string().to_lowercase().contains(q),
+    }
+}
+
+// ── Nested field access
+
+/// Walk a dotted path through a JSON value: `["author", "name"]` →
+/// `item.author.name`
+pub fn get_nested<'a>(v: &'a Value, path: &[String]) -> Option<&'a Value> {
+    path.iter().try_fold(v, |cur, seg| cur.get(seg.as_str()))
+}
+
+fn dotted(s: &str) -> Vec<String> { s.split('.').map(String::from).collect() }
+
+//   Sort key
+
+#[derive(Clone, Copy, PartialEq)]
+enum Sk<'a> {
+    Num(f64),
+    Str(&'a str),
+    Null,
+}
+
+impl PartialOrd for Sk<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        use Sk::*;
+        match (self, other) {
+            (Num(a), Num(b)) => a.partial_cmp(b),
+            (Str(a), Str(b)) => Some(a.cmp(b)),
+            (Null, Null) => Some(Ordering::Equal),
+            (Null, _) => Some(Ordering::Less),
+            (_, Null) => Some(Ordering::Greater),
+            _ => Some(Ordering::Less),
+        }
+    }
+}
+
+fn sortable(v: Option<&Value>) -> Sk<'_> {
+    match v {
+        Some(Value::Number(n)) => n.as_f64().map(Sk::Num).unwrap_or(Sk::Null),
+        Some(Value::String(s)) => Sk::Str(s.as_str()),
+        // For arrays, objects, and other types, treat as Null for sorting
+        _ => Sk::Null,
+    }
 }
