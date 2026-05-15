@@ -34,8 +34,6 @@
   "rust-analyzer.cargo.targetDir": true,
   "rust-analyzer.check.command": "clippy",
   "rust-analyzer.checkOnSave": true,
-  // Auto import and organize imports
-  "rust-analyzer.completion.autoimport.enable": true,
   "rust-analyzer.imports.group.enable": true,
   "rust-analyzer.imports.granularity.enforce": true,
   "rust-analyzer.imports.granularity.group": "module",
@@ -69,5 +67,6 @@
   "[just]": {
     "editor.defaultFormatter": "nefrob.vscode-just-syntax"
   },
-  "just.enableLinting": true
+  "just.enableLinting": true,
+  "merge-conflict.autoNavigateNextConflict.enabled": true
 }

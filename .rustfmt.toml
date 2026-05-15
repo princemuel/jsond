@@ -3,17 +3,15 @@
 # Settings
 # -----------------------------------------------
 
+max_width                   = 104
+unstable_features           = true
 # -----------------------------------------------
 # Stable Features
 # -----------------------------------------------
 newline_style               = "Unix"
 use_field_init_shorthand    = true
 use_try_shorthand           = true
-use_small_heuristics        = "Max"
-# -----------------------------------------------
-# Settings
-# -----------------------------------------------
-unstable_features           = true
+use_small_heuristics        = "Default"
 # -----------------------------------------------
 # Unstable Features
 # -----------------------------------------------
