@@ -8,247 +8,268 @@
 //!   PATCH  /{resource}/{id}      — partial update
 //!   DELETE /{resource}/{id}      — delete
 
-use std::collections::HashMap;
+use axum::Router;
+use axum::routing::get;
 
-use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::{Json, Router};
-use serde_json::{Value, json};
+use crate::db::Database;
 
-use crate::db::Db;
-use crate::error::{Error, Result};
-use crate::query::{Pagination, apply_query, embed_children, expand_parents, parse_query};
-
-pub(crate) fn router() -> Router<Db> { Router::new() }
-
-mod handlers {}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// GET /:resource
-// ──────────────────────────────────────────────────────────────────────────────
-
-pub async fn list_collection(
-    State(db): State<Db>,
-    Path(resource): Path<String>,
-    Query(raw_params): Query<HashMap<String, String>>,
-) -> Result<(StatusCode, HeaderMap, Json<Value>)> {
-    let guard = db.read().await;
-
-    if !guard.is_collection(&resource) {
-        return Err(Error::NotFound);
-    }
-
-    let items = guard.get_collection(&resource).unwrap_or_default();
-    let default_per_page = 10_usize; // overridden via CLI args in real flow; kept simple here
-
-    let params = parse_query(&raw_params, default_per_page);
-    let result = apply_query(items, &params);
-
-    // Embed / expand after pagination so we don't embed hundreds of records
-    let mut data = result.data;
-    if let Some(obj) = guard.data.as_object() {
-        if !params.embed.is_empty() {
-            embed_children(&mut data, obj, params.embed.into_iter());
-        }
-
-        if !params.expand.is_empty() {
-            expand_parents(&mut data, obj, params.expand.into_iter());
-        }
-    }
-
-    let mut headers = HeaderMap::new();
-    let header =
-        HeaderValue::from_str(&result.total.to_string()).map_err(|e| Error::Internal(e.into()))?;
-    headers.insert("X-Total-Count", header);
-
-    // Link header for slice pagination
-    match &params.pagination {
-        Pagination::Slice { .. } => {
-            // no link header needed for slice-based
-        }
-        _ => {}
-    }
-
-    let body = match &params.pagination {
-        Pagination::Page { .. } => {
-            // json-server v1 page response shape
-            json!({
-                "first": result.first,
-                "prev": result.prev,
-                "next": result.next,
-                "last": result.last,
-                "pages": result.pages,
-                "items": result.total,
-                "page": result.page,
-                "per_page": result.per_page,
-                "data": data,
-            })
-        }
-        _ => Value::Array(data),
-    };
-
-    tracing::debug!(resource = %resource, total = result.total, "list");
-    Ok((StatusCode::OK, headers, Json(body)))
+pub(crate) fn router() -> Router<Database> {
+    Router::new()
+        .route("/{resource}", get(handlers::get_all).post(handlers::post))
+        .route(
+            "/{resource}/{id}",
+            get(handlers::get)
+                .put(handlers::put)
+                .patch(handlers::patch)
+                .delete(handlers::delete),
+        )
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// GET /{resource}/{id}
-// ──────────────────────────────────────────────────────────────────────────────
+mod handlers {
+    use std::collections::HashMap;
 
-pub async fn get_one(
-    State(db): State<Db>,
-    Path((resource, id)): Path<(String, String)>,
-    Query(raw_params): Query<HashMap<String, String>>,
-) -> Result<Json<Value>> {
-    let guard = db.read().await;
+    use axum::Json;
+    use axum::extract::{Path, Query, State};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use serde_json::{Value, json};
 
-    if !guard.is_collection(&resource) {
-        return Err(Error::NotFound);
+    use super::helpers;
+    use crate::db::Database;
+    use crate::error::{Error, Result};
+    use crate::query::{self, Pagination};
+
+    pub(super) async fn get_all(
+        Path(resource): Path<String>,
+        Query(params): Query<HashMap<String, String>>,
+        State(db): State<Database>,
+    ) -> Result<impl IntoResponse> {
+        // Singletons bypass all query logic
+        if db.is_singleton(&resource).await {
+            let val = db.get_singleton(&resource).await.ok_or(Error::NotFound)?;
+            return Ok(Json(val).into_response());
+        }
+
+        let raw_items = db.get_collection(&resource).await.ok_or(Error::NotFound)?;
+
+        // Parse query params (embed/expand keys are inside qp too)
+        let qp = query::parse(&params);
+        let res = query::apply(raw_items, &qp);
+
+        // Total is from BEFORE pagination but AFTER filter/search
+        let total = match res.pagination {
+            Pagination::Page { total, .. } | Pagination::Slice { total, .. } => total,
+            Pagination::None => res.items.len(),
+        };
+
+        // Attach _embed (hasMany) and _expand (belongsTo) AFTER paging —
+        // we embed only the visible page, not the whole collection.
+        let mut items = res.items;
+        for embed in &qp.embed {
+            helpers::attach_has_many(&db, &resource, embed, &mut items).await;
+        }
+        for expand in &qp.expand {
+            helpers::attach_belongs_to(&db, expand, &mut items).await;
+        }
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Total-Count", total.to_string().parse().unwrap());
+
+        let body = match res.pagination {
+            Pagination::Page {
+                page,
+                per_page,
+                total,
+            } => {
+                let pages = total.div_ceil(per_page).max(1);
+                json!({
+                    "first": 1,
+                    "prev":  (page > 1).then(|| page - 1),
+                    "next":  (page < pages).then(|| page + 1),
+                    "last":  pages,
+                    "pages": pages,
+                    "items": total,   // spec: "items" = total count
+                    "data":  items,   // spec: "data"  = page records
+                })
+            }
+            // Slice or no pagination → plain array
+            _ => json!(items),
+        };
+
+        Ok((StatusCode::OK, headers, Json(body)).into_response())
     }
 
-    let mut item = guard.find(&resource, &id).ok_or(Error::NotFound)?;
+    pub(super) async fn get(
+        Path((resource, id)): Path<(String, String)>,
+        Query(params): Query<HashMap<String, String>>,
+        State(db): State<Database>,
+    ) -> Result<impl IntoResponse> {
+        let mut item = db.find(&resource, &id).await.ok_or(Error::NotFound)?;
 
-    // Embed / expand on single resource
-    if let Some(embed) = raw_params.get("_embed") {
-        let embed = embed.split(',').map(|s| s.trim().to_string());
-        if let Some(obj) = guard.data.as_object() {
-            let mut items = vec![item];
-            embed_children(&mut items, obj, embed);
-            item = items.remove(0);
+        // Support _embed / _expand on single-item GETs
+        let embed_keys: Vec<String> = params
+            .get("_embed")
+            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
+            .unwrap_or_default();
+
+        let expand_keys: Vec<String> = params
+            .get("_expand")
+            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
+            .unwrap_or_default();
+
+        let mut items = vec![item];
+        for embed in &embed_keys {
+            helpers::attach_has_many(&db, &resource, embed, &mut items).await;
+        }
+        for expand in &expand_keys {
+            helpers::attach_belongs_to(&db, expand, &mut items).await;
+        }
+        item = items.remove(0);
+
+        Ok(Json(item))
+    }
+
+    pub(super) async fn post(
+        Path(resource): Path<String>,
+        State(db): State<Database>,
+        Json(body): Json<Value>,
+    ) -> Result<impl IntoResponse> {
+        let item = db.insert(&resource, body).await?;
+        Ok((StatusCode::CREATED, Json(item)))
+    }
+
+    pub(super) async fn put(
+        Path((resource, id)): Path<(String, String)>,
+        State(db): State<Database>,
+        Json(body): Json<Value>,
+    ) -> Result<impl IntoResponse> {
+        let item = db.replace(&resource, &id, body).await?;
+        Ok(Json(item))
+    }
+
+    pub(super) async fn patch(
+        Path((resource, id)): Path<(String, String)>,
+        State(db): State<Database>,
+        Json(body): Json<Value>,
+    ) -> Result<impl IntoResponse> {
+        let item = db.patch(&resource, &id, body).await?;
+        Ok(Json(item))
+    }
+
+    /// DELETE /{resource}/id?_dependent=<collection>
+    pub(super) async fn delete(
+        Path((resource, id)): Path<(String, String)>,
+        State(db): State<Database>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> Result<impl IntoResponse> {
+        let dependent = params.get("_dependent").map(String::as_str);
+        db.delete(&resource, &id, dependent).await?;
+        Ok(StatusCode::NO_CONTENT)
+    }
+}
+
+mod helpers {
+    use serde_json::Value;
+
+    use crate::db::Database;
+
+    /// `_embed=comments` — hasMany.
+    /// For each item, attaches `comments: [...]` where `comment.postId ==
+    /// item.id`.
+    ///
+    /// The foreign-key name is derived: singular(parent_resource) + "Id".
+    pub(super) async fn attach_has_many(
+        db: &Database,
+        resource: &str, // parent, e.g. "posts"
+        embed: &str,    // child collection, e.g. "comments"
+        items: &mut Vec<Value>,
+    ) {
+        let Some(children) = db.get_collection(embed).await else {
+            return;
+        };
+
+        let fk = format!("{}Id", singular(resource)); // e.g. "postId"
+
+        for item in items.iter_mut() {
+            let Some(obj) = item.as_object_mut() else {
+                continue;
+            };
+
+            let parent_id = match obj.get("id") {
+                Some(Value::String(v)) => v.to_owned(),
+                Some(v) => v.to_string(),
+                None => continue,
+            };
+
+            let related = children
+                .iter()
+                .filter(|child| {
+                    child
+                        .get(&fk)
+                        .map(|v| match v {
+                            Value::String(v) => v == &parent_id,
+                            v => v.to_string().trim_matches('"') == parent_id,
+                        })
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+
+            obj.insert(embed.to_owned(), Value::Array(related));
         }
     }
 
-    if let Some(expand) = raw_params.get("_expand") {
-        let expand = expand.split(',').map(|s| s.trim().to_owned());
-        if let Some(obj) = guard.data.as_object() {
-            let mut items = vec![item];
-            expand_parents(&mut items, obj, expand);
-            item = items.remove(0);
+    /// `_expand=post` — belongsTo.
+    /// For each item, attaches `post: {...}` by looking up `item.postId` in the
+    /// parent collection. We try `{expand}s` first (e.g. "posts"), then the
+    /// name as-is (e.g. "people"), matching json-server's own pluralisation
+    /// logic.
+    pub(super) async fn attach_belongs_to(
+        db: &Database,
+        expand: &str, // singular name of parent, e.g. "post"
+        items: &mut Vec<Value>,
+    ) {
+        // Try plural first, then bare name (handles irregular plurals like "people")
+        let plural = format!("{expand}s");
+        let parents = match db.get_collection(&plural).await {
+            Some(col) => col,
+            None => match db.get_collection(expand).await {
+                Some(col) => col,
+                None => return,
+            },
+        };
+
+        let fk = format!("{expand}Id"); // e.g. "postId"
+
+        for item in items.iter_mut() {
+            let Some(obj) = item.as_object_mut() else {
+                continue;
+            };
+
+            let Some(fk_val) = obj.get(&fk) else { continue };
+            let fk_str = match fk_val {
+                Value::String(v) => v.to_owned(),
+                v => v.to_string(),
+            };
+            let parent = parents
+                .iter()
+                .find(|parent| {
+                    parent
+                        .get("id")
+                        .map(|v| match v {
+                            Value::String(v) => v == &fk_str,
+                            v => v.to_string().trim_matches('"') == fk_str,
+                        })
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .unwrap_or(Value::Null);
+
+            obj.insert(expand.to_owned(), parent);
         }
     }
 
-    Ok(Json(item))
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// POST /:resource
-// ──────────────────────────────────────────────────────────────────────────────
-
-pub async fn create_item(
-    State(db): State<Db>,
-    Path(resource): Path<String>,
-    Json(body): Json<Value>,
-) -> Result<(StatusCode, Json<Value>)> {
-    let mut guard = db.write().await;
-
-    if guard.read_only {
-        return Err(Error::ReadOnly);
-    }
-
-    // Auto-create the collection if it doesn't exist yet
-    if !guard.is_collection(&resource) && !guard.is_singleton(&resource) {
-        guard.ensure_collection(&resource);
-    }
-
-    if !guard.is_collection(&resource) {
-        return Err(Error::BadRequest(format!(
-            "'{}' is a singleton — use PUT or PATCH to update it",
-            resource
-        )));
-    }
-
-    if !body.is_object() {
-        return Err(Error::UnprocessableEntity("Request body must be a JSON object".into()));
-    }
-
-    let created = guard.insert(&resource, body)?;
-    guard.persist()?;
-
-    tracing::debug!(resource = %resource, id = ?created.get("id"), "created");
-    Ok((StatusCode::CREATED, Json(created)))
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// PUT /{resource}/{id}
-// ──────────────────────────────────────────────────────────────────────────────
-
-pub async fn replace_item(
-    State(db): State<Db>,
-    Path((resource, id)): Path<(String, String)>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>> {
-    let mut guard = db.write().await;
-
-    if guard.read_only {
-        return Err(Error::ReadOnly);
-    }
-
-    if !guard.is_collection(&resource) {
-        return Err(Error::NotFound);
-    }
-
-    if !body.is_object() {
-        return Err(Error::UnprocessableEntity("Request body must be a JSON object".into()));
-    }
-
-    let updated = guard.replace(&resource, &id, body)?;
-    guard.persist()?;
-
-    tracing::debug!(resource = %resource, id = %id, "replaced");
-    Ok(Json(updated))
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// PATCH /{resource}/{id}
-// ──────────────────────────────────────────────────────────────────────────────
-
-pub async fn patch_item(
-    State(db): State<Db>,
-    Path((resource, id)): Path<(String, String)>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>> {
-    let mut guard = db.write().await;
-
-    if guard.read_only {
-        return Err(Error::ReadOnly);
-    }
-
-    if !guard.is_collection(&resource) {
-        return Err(Error::NotFound);
-    }
-
-    if !body.is_object() {
-        return Err(Error::UnprocessableEntity("Request body must be a JSON object".into()));
-    }
-
-    let updated = guard.patch(&resource, &id, body)?;
-    guard.persist()?;
-
-    tracing::debug!(resource = %resource, id = %id, "patched");
-    Ok(Json(updated))
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// DELETE /{resource}/{id}
-// ──────────────────────────────────────────────────────────────────────────────
-
-pub async fn delete_item(
-    State(db): State<Db>,
-    Path((resource, id)): Path<(String, String)>,
-) -> Result<Json<Value>> {
-    let mut guard = db.write().await;
-
-    if guard.read_only {
-        return Err(Error::ReadOnly);
-    }
-
-    if !guard.is_collection(&resource) {
-        return Err(Error::NotFound);
-    }
-
-    let deleted = guard.delete(&resource, &id)?;
-    guard.persist()?;
-
-    tracing::debug!(resource = %resource, id = %id, "deleted");
-    Ok(Json(deleted))
+    /// "posts" → "post", "comments" → "comment", "people" → "people" (no
+    /// trailing s)
+    fn singular(s: &str) -> &str { s.strip_suffix('s').unwrap_or(s) }
 }

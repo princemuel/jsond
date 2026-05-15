@@ -4,7 +4,7 @@
 use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use std::time::Duration;
+use core::time::Duration;
 
 use axum::extract::Request;
 use tower::{Layer, Service};
@@ -15,16 +15,23 @@ pub struct DelayLayer {
 }
 
 impl DelayLayer {
-    pub const fn new(millis: u64) -> Self { Self { delay: Duration::from_millis(millis) } }
+    pub const fn new(millis: u64) -> Self {
+        Self {
+            delay: Duration::from_millis(millis),
+        }
+    }
 }
 
 impl<S> Layer<S> for DelayLayer {
     type Service = DelayMiddleware<S>;
 
-    fn layer(&self, inner: S) -> Self::Service { DelayMiddleware { inner, delay: self.delay } }
+    fn layer(&self, inner: S) -> Self::Service {
+        DelayMiddleware {
+            inner,
+            delay: self.delay,
+        }
+    }
 }
-
-type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
 #[derive(Clone, Copy)]
 pub struct DelayMiddleware<S> {
@@ -39,7 +46,7 @@ where
     B: Send + 'static,
 {
     type Error = S::Error;
-    type Future = BoxFuture<Result<Self::Response, Self::Error>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
     type Response = S::Response;
 
     fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -64,5 +71,9 @@ where
 
 /// Convenience function: produce no-op if delay == 0.
 pub fn delay_middleware(ms: u64) -> Option<DelayLayer> {
-    if ms > 0 { Some(DelayLayer::new(ms)) } else { None }
+    if ms > 0 {
+        Some(DelayLayer::new(ms))
+    } else {
+        None
+    }
 }

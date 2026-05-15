@@ -2,92 +2,88 @@
 //!
 //! Routes are registered dynamically based on what is in the database.
 //! Collections get full CRUD; singletons get GET/PUT/PATCH.
-//! A catch-all layer dispatches unknown resources through the same handlers —
-//! because json-server supports creating resources that don't exist yet (POST).
+//! A catch-all layer dispatches unknown resources through the same handlers
+//! because the original jsond supports creating resources that don't exist yet (POST).
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use axum::extract::{Path, Query, State};
-use axum::http::{HeaderValue, header};
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::http::{HeaderValue, Method, header};
 use axum::{Router, middleware as axum_middleware};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::cli::Args;
-use crate::db::Db;
+use crate::cli::CliArgs;
+use crate::db::Database;
 use crate::middleware::delay::DelayLayer;
 use crate::middleware::read_only::read_only_guard;
 use crate::routes;
-use crate::routes::collection::{
-    create_item,
-    delete_item,
-    get_one,
-    list_collection,
-    patch_item,
-    replace_item,
-};
-use crate::routes::singleton::{
-    delete_singleton,
-    get_singleton,
-    patch_singleton,
-    replace_singleton,
-};
 
-pub fn build_router(db: Db, args: &Args) -> Router {
-    // ── Static file service ────────────────────────────────────────────────────
-    let static_dir = args.static_dir.clone();
-    let serve_dir = if static_dir.exists() { Some(ServeDir::new(&static_dir)) } else { None };
+pub fn build_router(db: &Database, args: &CliArgs) -> Router {
+    let public_dir = args.r#static.as_path();
+    let serve_dir = if public_dir.exists() && public_dir.is_dir() {
+        Some(ServeDir::new(public_dir))
+    } else {
+        None
+    };
+
+    // let cors = CorsLayer::new()
+    //     .allow_origin(Any)
+    //     .allow_methods([
+    //         Method::GET,
+    //         Method::HEAD,
+    //         Method::POST,
+    //         Method::PUT,
+    //         Method::PATCH,
+    //         Method::DELETE,
+    //     ])
+    //     .allow_headers(Any)
+    //     .allow_credentials(false);
+    let cors = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::HEAD,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
+        .allow_origin(Any);
 
     // We need a small shim so that GET /:resource routes to the right handler
     // depending on whether the resource is a collection or singleton.
     let api = Router::new()
         .merge(routes::root::router())
-        .route("/:resource", get(resource_dispatcher).post(create_item))
-        .route(
-            "/{resource}/{id}",
-            get(get_one).put(replace_item).patch(patch_item).delete(delete_item),
-        )
-        .with_state(Arc::clone(&db));
+        // .route("/{resource}", get(resource_dispatcher))
+        .merge(routes::singleton::router())
+        .merge(routes::collection::router())
+        .with_state(db.clone());
 
-    let api =
-        if args.readonly { api.layer(axum_middleware::from_fn(read_only_guard)) } else { api };
-    let api = if !args.no_cors { api.layer(CorsLayer::permissive()) } else { api };
-    let api = api.layer(TraceLayer::new_for_http());
-    let api = api.layer(SetResponseHeaderLayer::if_not_present(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    ));
+    let api = if args.readonly {
+        api.layer(axum_middleware::from_fn(read_only_guard))
+    } else {
+        api
+    };
+    let api = if args.cors { api.layer(cors) } else { api };
 
-    let api = if args.delay > 0 { api.layer(DelayLayer::new(args.delay)) } else { api };
+    let api = api
+        .layer(TraceLayer::new_for_http())
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        ));
+
+    let api = if args.delay > 0 {
+        api.layer(DelayLayer::new(args.delay))
+    } else {
+        api
+    };
 
     // ── Static files (fallback) ───────────────────────────────────────────────
-    if let Some(serve) = serve_dir { api.fallback_service(serve) } else { api }
-}
-
-/// Dispatches GET /:resource to either `list_collection` or `get_singleton`
-/// based on the resource type in the database.
-async fn resource_dispatcher(
-    state: State<Db>,
-    path: Path<String>,
-    query: Query<HashMap<String, String>>,
-) -> Response {
-    let db = state.read().await;
-    if db.is_singleton(&path.0) {
-        drop(db);
-        match get_singleton(state, path).await {
-            Ok(r) => r.into_response(),
-            Err(e) => e.into_response(),
-        }
+    if let Some(serve) = serve_dir {
+        api.fallback_service(serve)
     } else {
-        drop(db);
-        match list_collection(state, path, query).await {
-            Ok(r) => r.into_response(),
-            Err(e) => e.into_response(),
-        }
+        api
     }
 }

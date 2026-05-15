@@ -7,9 +7,3 @@
 pub mod collection;
 pub mod root;
 pub mod singleton;
-
-use axum::Router;
-pub use collection::*;
-pub use singleton::*;
-
-pub(crate) fn router() -> Router { Router::new() }
