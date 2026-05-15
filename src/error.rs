@@ -7,19 +7,22 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Not found")]
+    #[error("not found")]
     NotFound,
 
-    #[error("Bad request: {0}")]
+    #[error("bad request: {0}")]
     BadRequest(String),
 
-    #[error("Method not allowed")]
+    #[error("method not allowed")]
     MethodNotAllowed,
 
-    #[error("Conflict: resource already exists")]
+    #[error("this resource already exists")]
     Conflict,
 
-    #[error("Unprocessable entity: {0}")]
+    #[error("'{0}' is not a collection resource")]
+    NotCollection(String),
+
+    #[error("unprocessable entity: {0}")]
     UnprocessableEntity(String),
 
     #[error("Internal server error: {0}")]
@@ -28,7 +31,7 @@ pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON error: {0}")]
+    #[error("serialization error: {0}")]
     Json(#[from] serde_json::Error),
 
     #[error("Readonly mode: write operations are disabled")]
@@ -44,7 +47,12 @@ impl IntoResponse for Error {
             Self::Conflict => (StatusCode::CONFLICT, self.to_string()),
             Self::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.to_owned()),
             Self::ReadOnly => (StatusCode::FORBIDDEN, self.to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Unknown Error".to_string()),
+            Self::Json(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
+            Self::Io(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unknown Error".to_string(),
+            ),
         };
 
         let body = Json(json!({ "error": message }));
