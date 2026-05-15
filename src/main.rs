@@ -1,18 +1,17 @@
-use anyhow::Result;
 use clap::Parser as _;
-use jsond::Server;
-use jsond::cli::Args;
+use jsond::{CliArgs, Server};
+use tracing::info;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Initialise structured logging; respect RUST_LOG env var.
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "jsond=info,tower_http=info".into()),
-        )
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "jsond=info,tower_http=info".into()))
+        .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let args = Args::parse();
+    let args = CliArgs::parse();
     Server::run(&args).await
 }
