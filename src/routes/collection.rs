@@ -73,6 +73,8 @@ mod handlers {
         }
 
         let mut headers = HeaderMap::new();
+        // TODO: remove this unwrap once we have a proper header abstraction in place.
+        #[expect(clippy::unwrap_used)]
         headers.insert("X-Total-Count", total.to_string().parse().unwrap());
 
         let body = match res.pagination {
@@ -177,12 +179,12 @@ mod helpers {
     /// For each item, attaches `comments: [...]` where `comment.postId ==
     /// item.id`.
     ///
-    /// The foreign-key name is derived: singular(parent_resource) + "Id".
+    /// The foreign-key name is derived: `singular(parent_resource)` + "Id".
     pub(super) async fn attach_has_many(
         db: &Database,
         resource: &str, // parent, e.g. "posts"
         embed: &str,    // child collection, e.g. "comments"
-        items: &mut Vec<Value>,
+        items: &mut [Value],
     ) {
         let Some(children) = db.get_collection(embed).await else {
             return;
@@ -195,6 +197,7 @@ mod helpers {
                 continue;
             };
 
+            #[expect(clippy::pattern_type_mismatch)]
             let parent_id = match obj.get("id") {
                 Some(Value::String(v)) => v.to_owned(),
                 Some(v) => v.to_string(),
@@ -204,13 +207,11 @@ mod helpers {
             let related = children
                 .iter()
                 .filter(|child| {
-                    child
-                        .get(&fk)
-                        .map(|v| match v {
-                            Value::String(v) => v == &parent_id,
-                            v => v.to_string().trim_matches('"') == parent_id,
-                        })
-                        .unwrap_or(false)
+                    #[expect(clippy::pattern_type_mismatch)]
+                    child.get(&fk).is_some_and(|v| match v {
+                        Value::String(v) => v == &parent_id,
+                        v => v.to_string().trim_matches('"') == parent_id,
+                    })
                 })
                 .cloned()
                 .collect();
@@ -227,7 +228,7 @@ mod helpers {
     pub(super) async fn attach_belongs_to(
         db: &Database,
         expand: &str, // singular name of parent, e.g. "post"
-        items: &mut Vec<Value>,
+        items: &mut [Value],
     ) {
         // Try plural first, then bare name (handles irregular plurals like "people")
         let plural = format!("{expand}s");
@@ -247,6 +248,7 @@ mod helpers {
             };
 
             let Some(fk_val) = obj.get(&fk) else { continue };
+            #[expect(clippy::pattern_type_mismatch)]
             let fk_str = match fk_val {
                 Value::String(v) => v.to_owned(),
                 v => v.to_string(),
@@ -254,13 +256,11 @@ mod helpers {
             let parent = parents
                 .iter()
                 .find(|parent| {
-                    parent
-                        .get("id")
-                        .map(|v| match v {
-                            Value::String(v) => v == &fk_str,
-                            v => v.to_string().trim_matches('"') == fk_str,
-                        })
-                        .unwrap_or(false)
+                    #[expect(clippy::pattern_type_mismatch)]
+                    parent.get("id").is_some_and(|v| match v {
+                        Value::String(v) => v == &fk_str,
+                        v => v.to_string().trim_matches('"') == fk_str,
+                    })
                 })
                 .cloned()
                 .unwrap_or(Value::Null);

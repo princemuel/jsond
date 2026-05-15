@@ -15,6 +15,7 @@ pub struct DelayLayer {
 }
 
 impl DelayLayer {
+    #[must_use]
     pub const fn new(millis: u64) -> Self {
         Self {
             delay: Duration::from_millis(millis),
@@ -49,8 +50,8 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
     type Response = S::Response;
 
-    fn poll_ready(&mut self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(ctx)
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
@@ -70,10 +71,5 @@ where
 }
 
 /// Convenience function: produce no-op if delay == 0.
-pub fn delay_middleware(ms: u64) -> Option<DelayLayer> {
-    if ms > 0 {
-        Some(DelayLayer::new(ms))
-    } else {
-        None
-    }
-}
+#[must_use]
+pub fn delay_middleware(ms: u64) -> Option<DelayLayer> { (ms > 0).then(|| DelayLayer::new(ms)) }

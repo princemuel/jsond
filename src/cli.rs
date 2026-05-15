@@ -46,7 +46,6 @@ pub struct CliArgs {
     pub per_page: usize,
 }
 
-#[cfg(test)]
 impl Default for CliArgs {
     fn default() -> Self {
         Self {

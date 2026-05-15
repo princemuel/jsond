@@ -24,6 +24,7 @@
 //! Overrides individual field filter params when valid JSON.
 
 use core::cmp::Ordering;
+use core::hash::BuildHasher;
 use std::collections::HashMap;
 
 use serde_json::{Map, Value};
@@ -85,7 +86,7 @@ pub enum WhereExpr {
 
 // ── Parse ─────────────────────────────────────────────────────────────────────
 
-pub fn parse(raw: &HashMap<String, String>) -> QueryParams {
+pub fn parse<S: BuildHasher>(raw: &HashMap<String, String, S>) -> QueryParams {
     let mut qp = QueryParams {
         per_page: 10,
         ..Default::default()
@@ -124,11 +125,13 @@ fn parse_sort(s: &str) -> Vec<SortKey> {
         .filter(|p| !p.is_empty())
         .map(|seg| {
             let segment = seg.trim();
-            let (desc, field) = if segment.starts_with('-') {
-                (true, &segment[1..])
+
+            let (desc, field) = if let Some(stripped) = segment.strip_prefix('-') {
+                (true, stripped)
             } else {
                 (false, segment)
             };
+
             SortKey {
                 desc,
                 path: dotted(field),
@@ -209,56 +212,27 @@ fn json_to_expr(v: &Value) -> Option<WhereExpr> {
     }
 }
 
+#[expect(clippy::doc_link_with_quotes)]
+#[expect(clippy::pattern_type_mismatch)]
 /// Recurse `{"a": {"b": {"gt": "m"}}}` into path=["a","b"], op=Gt, value="m"
-#[expect(clippy::else_if_without_else)]
 fn collect_leaf_conds(obj: &Map<String, Value>, path: &mut Vec<String>, out: &mut Vec<WhereExpr>) {
-    for (k, v) in obj {
-        if let Some(op) = parse_op(k) {
-            let value = match v {
-                Value::String(v) => v.to_owned(),
+    obj.iter().for_each(|(k, v)| match (parse_op(k), v) {
+        (Some(op), value) => out.push(WhereExpr::Cond(Filter {
+            path: path.clone(),
+            op,
+            value: match value {
+                Value::String(s) => s.to_owned(),
                 v => v.to_string(),
-            };
-
-            out.push(WhereExpr::Cond(Filter {
-                path: path.to_vec(),
-                op,
-                value,
-            }));
-        } else if let Some(child_obj) = v.as_object() {
+            },
+        })),
+        (None, Value::Object(child)) => {
             path.push(k.to_owned());
-            collect_leaf_conds(child_obj, path, out);
+            collect_leaf_conds(child, path, out);
             path.pop();
         }
-    }
-
-    for (k, v) in obj {
-        match (parse_op(k), v) {
-            (Some(op), value) => {
-                // leaf: value must be scalar (string/number/bool/null); arrays and objects are
-                // not supported as filter values
-                let value = match value {
-                    Value::String(v) => v.to_owned(),
-                    v => v.to_string(),
-                };
-
-                out.push(WhereExpr::Cond(Filter {
-                    path: path.clone(),
-                    op,
-                    value,
-                }));
-            }
-
-            (None, Value::Object(child)) => {
-                path.push(k.to_owned());
-                collect_leaf_conds(child, path, out);
-                path.pop();
-            }
-
-            _ => {}
-        }
-    }
+        _ => {}
+    });
 }
-
 #[derive(Clone, Copy)]
 pub enum Pagination {
     None,
@@ -278,9 +252,10 @@ pub struct QueryResult {
     pub pagination: Pagination,
 }
 
+#[must_use]
 pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
     // 1. Filtering — _where overrides individual field params if present
-    if let Some(expr) = &qp.r#where {
+    if let Some(expr) = qp.r#where.as_ref() {
         items.retain(|item| eval_where(item, expr));
     } else {
         for f in &qp.filters {
@@ -289,7 +264,7 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
     }
 
     // 2. Full-text search
-    if let Some(q) = &qp.search {
+    if let Some(q) = qp.search.as_ref() {
         let q = q.to_lowercase();
         items.retain(|item| full_text(item, &q));
     }
@@ -331,7 +306,7 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
         let start = qp.start.unwrap_or(0);
         let end = qp
             .end
-            .unwrap_or_else(|| qp.limit.map(|l| start + l).unwrap_or(total));
+            .unwrap_or_else(|| qp.limit.map_or(total, |limit| start + limit));
         let slice_len = end.saturating_sub(start).min(total.saturating_sub(start));
 
         items = items.into_iter().skip(start).take(slice_len).collect();
@@ -350,20 +325,24 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
 
 // ── _where evaluation
 fn eval_where(item: &Value, expr: &WhereExpr) -> bool {
-    match expr {
-        WhereExpr::And(v) => v.iter().all(|exp| eval_where(item, exp)),
-        WhereExpr::Or(v) => v.iter().any(|exp| eval_where(item, exp)),
-        WhereExpr::Cond(Filter { path, op, value }) => matches_op(get_nested(item, path), op, value),
+    match *expr {
+        WhereExpr::And(ref v) => v.iter().all(|exp| eval_where(item, exp)),
+        WhereExpr::Or(ref v) => v.iter().any(|exp| eval_where(item, exp)),
+        WhereExpr::Cond(Filter {
+            op,
+            ref path,
+            ref value,
+        }) => matches_op(get_nested(item, path), op, value),
     }
 }
 
 //   Filter matching
 
 fn matches_filter(item: &Value, f: &Filter) -> bool {
-    matches_op(get_nested(item, &f.path), &f.op, &f.value)
+    matches_op(get_nested(item, &f.path), f.op, &f.value)
 }
 
-fn matches_op(val: Option<&Value>, op: &Op, target: &str) -> bool {
+fn matches_op(val: Option<&Value>, op: Op, target: &str) -> bool {
     match op {
         Op::Eq => eq_str(val, target),
         Op::Ne => !eq_str(val, target),
@@ -391,7 +370,7 @@ fn matches_op(val: Option<&Value>, op: &Op, target: &str) -> bool {
 }
 
 fn eq_str(val: Option<&Value>, target: &str) -> bool {
-    match val {
+    match val.cloned() {
         Some(Value::String(v)) => v == target,
         Some(Value::Number(v)) => v.to_string() == target,
         Some(Value::Bool(v)) => v.to_string() == target,
@@ -403,7 +382,7 @@ fn eq_str(val: Option<&Value>, target: &str) -> bool {
 
 /// Returns negative/zero/positive: prefers numeric, falls back to string.
 fn cmp_val(val: Option<&Value>, target: &str) -> Ordering {
-    let to_f64 = |v: Option<&Value>| match v {
+    let to_f64 = |v: Option<&Value>| match v.cloned() {
         Some(Value::Number(n)) => n.as_f64(),
         Some(Value::String(s)) => s.parse().ok(),
         _ => None,
@@ -420,7 +399,7 @@ fn cmp_val(val: Option<&Value>, target: &str) -> Ordering {
 /// Case-insensitive string operation (contains / startsWith / endsWith).
 fn str_op(val: Option<&Value>, target: &str, f: impl Fn(&str, &str) -> bool) -> bool {
     let t = target.to_lowercase();
-    match val {
+    match val.cloned() {
         Some(Value::String(v)) => f(&v.to_lowercase(), &t),
         Some(v) => f(&v.to_string().to_lowercase(), &t),
         None => false,
@@ -429,11 +408,11 @@ fn str_op(val: Option<&Value>, target: &str, f: impl Fn(&str, &str) -> bool) -> 
 
 //   Full-text searchWW
 fn full_text(v: &Value, q: &str) -> bool {
-    match v {
-        Value::Object(map) => map.values().any(|v| full_text(v, q)),
-        Value::Array(arr) => arr.iter().any(|v| full_text(v, q)),
-        Value::String(s) => s.to_lowercase().contains(q),
-        other => other.to_string().to_lowercase().contains(q),
+    match v.to_owned() {
+        Value::Object(v) => v.values().any(|v| full_text(v, q)),
+        Value::Array(v) => v.iter().any(|v| full_text(v, q)),
+        Value::String(v) => v.to_lowercase().contains(q),
+        v => v.to_string().to_lowercase().contains(q),
     }
 }
 
@@ -441,6 +420,7 @@ fn full_text(v: &Value, q: &str) -> bool {
 
 /// Walk a dotted path through a JSON value: `["author", "name"]` →
 /// `item.author.name`
+#[must_use]
 pub fn get_nested<'a>(v: &'a Value, path: &[String]) -> Option<&'a Value> {
     path.iter().try_fold(v, |cur, seg| cur.get(seg.as_str()))
 }
@@ -456,24 +436,25 @@ enum Sk<'a> {
     Null,
 }
 
+#[expect(clippy::pattern_type_mismatch)]
 impl PartialOrd for Sk<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        use Sk::*;
         match (self, other) {
-            (Num(a), Num(b)) => a.partial_cmp(b),
-            (Str(a), Str(b)) => Some(a.cmp(b)),
-            (Null, Null) => Some(Ordering::Equal),
-            (Null, _) => Some(Ordering::Less),
-            (_, Null) => Some(Ordering::Greater),
+            (Self::Num(a), Self::Num(b)) => a.partial_cmp(b),
+            (Self::Str(a), Self::Str(b)) => Some(a.cmp(b)),
+            (Self::Null, Self::Null) => Some(Ordering::Equal),
+            (Self::Null, _) => Some(Ordering::Less),
+            (_, Self::Null) => Some(Ordering::Greater),
             _ => Some(Ordering::Less),
         }
     }
 }
 
+#[expect(clippy::pattern_type_mismatch)]
 fn sortable(v: Option<&Value>) -> Sk<'_> {
     match v {
-        Some(Value::Number(n)) => n.as_f64().map(Sk::Num).unwrap_or(Sk::Null),
-        Some(Value::String(s)) => Sk::Str(s.as_str()),
+        Some(Value::Number(v)) => v.as_f64().map_or(Sk::Null, Sk::Num),
+        Some(Value::String(v)) => Sk::Str(v),
         // For arrays, objects, and other types, treat as Null for sorting
         _ => Sk::Null,
     }

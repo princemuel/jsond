@@ -9,7 +9,7 @@ use crate::middleware::delay::DelayLayer;
 use crate::middleware::read_only::read_only_guard;
 use crate::routes;
 
-pub(crate) fn build_router(db: &Database, args: &CliArgs) -> Router {
+pub fn build_router(db: &Database, args: &CliArgs) -> Router {
     let router = Router::new()
         .merge(routes::root::router())
         .merge(routes::singleton::router())
