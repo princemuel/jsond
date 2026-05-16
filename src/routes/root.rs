@@ -3,9 +3,7 @@ use axum::routing::get;
 
 use crate::db::Database;
 
-pub(crate) fn router() -> Router<Database> {
-    Router::new().route("/", get(handlers::get))
-}
+pub fn router() -> Router<Database> { Router::new().route("/", get(handlers::get)) }
 
 mod handlers {
     use axum::Json;

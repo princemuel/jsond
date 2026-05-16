@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::error::{Error, Result};
-use crate::ids::IdStrategy;
+use crate::id::IdStrategy;
 
 #[derive(Clone)]
 pub struct Database(Arc<RwLock<Inner>>);
@@ -34,12 +34,7 @@ impl Database {
         let path = path.as_ref().to_path_buf();
         let content = fs::read_to_string(&path)?;
         let data = parse_db(&content, &path)?;
-        Ok(Self(Arc::new(RwLock::new(Inner {
-            data,
-            path,
-            id_strategy,
-            readonly,
-        }))))
+        Ok(Self(Arc::new(RwLock::new(Inner { data, path, id_strategy, readonly }))))
     }
 
     /// Reload from disk (used by file watcher).
@@ -77,32 +72,17 @@ impl Database {
 
     /// Get a collection (array).
     pub async fn get_collection(&self, resource: &str) -> Option<Vec<Value>> {
-        self.0
-            .read()
-            .await
-            .data
-            .get(resource)
-            .and_then(|v| v.as_array())
-            .cloned()
+        self.0.read().await.data.get(resource).and_then(|v| v.as_array()).cloned()
     }
 
     /// Get a singleton (object).
     pub async fn get_singleton(&self, resource: &str) -> Option<Value> {
-        self.0
-            .read()
-            .await
-            .data
-            .get(resource)
-            .filter(|v| v.is_object())
-            .cloned()
+        self.0.read().await.data.get(resource).filter(|v| v.is_object()).cloned()
     }
 
     /// Find a single item by its `id` field.
     pub async fn find(&self, resource: &str, id: &str) -> Option<Value> {
-        self.get_collection(resource)
-            .await?
-            .into_iter()
-            .find(|item| id_matches(item, id))
+        self.get_collection(resource).await?.into_iter().find(|item| id_matches(item, id))
     }
 
     /// Insert a new item, assigning a string id if one is not present.
@@ -118,11 +98,8 @@ impl Database {
             //     .unwrap_or(&[]);
 
             const EMPTY: &[Value] = &[];
-            let collection = g
-                .data
-                .get(resource)
-                .and_then(Value::as_array)
-                .map_or_else(|| EMPTY, Vec::as_slice);
+            let collection =
+                g.data.get(resource).and_then(Value::as_array).map_or_else(|| EMPTY, Vec::as_slice);
 
             let id = g.id_strategy.generate(collection);
             normalize_id(&mut item);
@@ -136,8 +113,7 @@ impl Database {
             Some(&mut Value::Array(ref mut v)) => v.push(item.clone()),
             Some(_) => return Err(Error::NotCollection(resource.to_owned())),
             None => {
-                g.data
-                    .insert(resource.to_owned(), Value::Array(vec![item.clone()]));
+                g.data.insert(resource.to_owned(), Value::Array(vec![item.clone()]));
             }
         }
 
@@ -184,10 +160,7 @@ impl Database {
 
         // Build merge patch without the `id` field
         let mut patch_value = Value::Object(payload.clone());
-        patch_value
-            .as_object_mut()
-            .ok_or(Error::NotFound)?
-            .remove("id");
+        patch_value.as_object_mut().ok_or(Error::NotFound)?.remove("id");
 
         // RFC 7396 JSON Merge Patch: nulls delete keys, objects recurse, scalars
         // replace
@@ -213,10 +186,7 @@ impl Database {
             if let Some(&mut Value::Array(ref mut v)) = g.data.get_mut(key) {
                 v.retain(|item| {
                     item.get(&fk).and_then(Value::as_str) != Some(id)
-                        && item
-                            .get(&fk)
-                            .map(|v| v.to_string().trim_matches('"').to_owned())
-                            .as_deref()
+                        && item.get(&fk).map(|v| v.to_string().trim_matches('"').to_owned()).as_deref()
                             != Some(id)
                 });
             }

@@ -10,7 +10,7 @@ use axum::routing::put;
 
 use crate::db::Database;
 
-pub(crate) fn router() -> Router<Database> {
+pub fn router() -> Router<Database> {
     Router::new().route("/{resource}", put(handlers::put).patch(handlers::patch))
 }
 

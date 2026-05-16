@@ -13,16 +13,11 @@ use axum::routing::get;
 
 use crate::db::Database;
 
-pub(crate) fn router() -> Router<Database> {
-    Router::new()
-        .route("/{resource}", get(handlers::get_all).post(handlers::post))
-        .route(
-            "/{resource}/{id}",
-            get(handlers::get)
-                .put(handlers::put)
-                .patch(handlers::patch)
-                .delete(handlers::delete),
-        )
+pub fn router() -> Router<Database> {
+    Router::new().route("/{resource}", get(handlers::get_all).post(handlers::post)).route(
+        "/{resource}/{id}",
+        get(handlers::get).put(handlers::put).patch(handlers::patch).delete(handlers::delete),
+    )
 }
 
 mod handlers {
@@ -78,11 +73,7 @@ mod handlers {
         headers.insert("X-Total-Count", total.to_string().parse().unwrap());
 
         let body = match res.pagination {
-            Pagination::Page {
-                page,
-                per_page,
-                total,
-            } => {
+            Pagination::Page { page, per_page, total } => {
                 let pages = total.div_ceil(per_page).max(1);
                 json!({
                     "first": 1,

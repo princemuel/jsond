@@ -16,22 +16,13 @@ pub struct DelayLayer {
 
 impl DelayLayer {
     #[must_use]
-    pub const fn new(millis: u64) -> Self {
-        Self {
-            delay: Duration::from_millis(millis),
-        }
-    }
+    pub const fn new(millis: u64) -> Self { Self { delay: Duration::from_millis(millis) } }
 }
 
 impl<S> Layer<S> for DelayLayer {
     type Service = DelayMiddleware<S>;
 
-    fn layer(&self, inner: S) -> Self::Service {
-        DelayMiddleware {
-            inner,
-            delay: self.delay,
-        }
-    }
+    fn layer(&self, inner: S) -> Self::Service { DelayMiddleware { inner, delay: self.delay } }
 }
 
 #[derive(Clone, Copy)]

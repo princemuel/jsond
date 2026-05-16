@@ -1,7 +1,7 @@
 use core::net::Ipv4Addr;
 use std::path::PathBuf;
 
-use crate::ids::IdStrategy;
+use crate::id::IdStrategy;
 
 #[derive(Clone, Debug, clap::Parser)]
 #[command(version, about, long_about = None)]
@@ -38,8 +38,8 @@ pub struct CliArgs {
     #[arg(long, default_value_t = false)]
     pub readonly: bool,
 
-    #[arg(long, value_enum, default_value_t = CliIdStrategy::Uuidv7)]
-    pub id_strategy: CliIdStrategy,
+    #[arg(long, value_enum, default_value_t = IdStrategy::Uuidv7)]
+    pub id_strategy: IdStrategy,
 
     /// Number of items per page for pagination (default 10)
     #[arg(long, default_value_t = 10)]
@@ -57,25 +57,8 @@ impl Default for CliArgs {
             watch: false,
             cors: false,
             readonly: false,
-            id_strategy: CliIdStrategy::Int,
+            id_strategy: IdStrategy::Int,
             per_page: 10,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum CliIdStrategy {
-    Int,
-    Uuidv4,
-    Uuidv7,
-}
-
-impl From<CliIdStrategy> for IdStrategy {
-    fn from(value: CliIdStrategy) -> Self {
-        match value {
-            CliIdStrategy::Uuidv4 => Self::Uuidv4,
-            CliIdStrategy::Uuidv7 => Self::Uuidv7,
-            CliIdStrategy::Int => Self::Int,
         }
     }
 }

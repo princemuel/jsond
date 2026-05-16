@@ -3,12 +3,11 @@ use core::fmt;
 use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum IdStrategy {
+    Int,
     Uuidv4,
-    /// Time-sortable UUID — lexicographically ordered, k-sortable in indexes
     Uuidv7,
-    Int, // auto-increment integer, per-collection max+1
 }
 
 impl IdStrategy {
@@ -17,7 +16,7 @@ impl IdStrategy {
         match self {
             Self::Uuidv4 => Uuid::new_v4().to_string(),
             Self::Uuidv7 => Uuid::now_v7().to_string(),
-            // scans existing items and return max+1 or fallback to "1"
+            // scan existing items and return max+1 or fallback to "1"
             Self::Int => {
                 let max = collection
                     .iter()

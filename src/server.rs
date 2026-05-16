@@ -19,12 +19,12 @@ impl Server {
         telemetry::init();
         let args = CliArgs::parse();
 
-        let db = Database::load(&args.db, args.id_strategy.into(), args.readonly)?;
+        let db = Database::load(&args.db, args.id_strategy, args.readonly)?;
         let resources = db.resources().await;
 
         tracing::info!(
-            file = %args.db.display(),
-            resource_count = resources.len(),
+            database = %args.db.display(),
+            resources = resources.len(),
             "database loaded"
         );
 
@@ -38,11 +38,18 @@ impl Server {
         let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
         let tcp = TcpListener::bind(&addr).await?;
 
-        print_banner(&addr, &args, &resources);
+        tracing::info!("");
+        tracing::info!("  ┌──────────────────────────────────────────┐");
+        tracing::info!("  │   jsond                         │");
+        tracing::info!("  │   http://{}:{:<25}│", args.host, args.port);
+        tracing::info!("  │   id strategy: {:<25}│", format!("{:?}", args.id_strategy));
+        tracing::info!("  ├──────────────────────────────────────────┤");
+        for r in &resources {
+            tracing::info!("  │   /{:<40}│", r);
+        }
+        tracing::info!("  └──────────────────────────────────────────┘");
 
-        axum::serve(tcp, router)
-            .with_graceful_shutdown(shutdown_signal())
-            .await?;
+        axum::serve(tcp, router).with_graceful_shutdown(shutdown_signal()).await?;
 
         println!("\n\x1b[33m  Shutting down...\x1b[0m\n");
         tracing::info!("server stopped");
@@ -51,48 +58,48 @@ impl Server {
     }
 }
 
-fn print_banner(addr: &SocketAddr, args: &CliArgs, resources: &[String]) {
-    println!();
-    println!("\x1b[1;32m  JSON Server started\x1b[0m");
-    println!();
-    println!(
-        "\x1b[90m  >\x1b[0m Local:   \x1b[36mhttp://{}:{}/\x1b[0m",
-        args.host,
-        addr.port()
-    );
-    println!("\x1b[90m  >\x1b[0m Network: \x1b[36mhttp://{addr}/\x1b[0m");
-    println!();
+// fn print_banner(addr: &SocketAddr, args: &CliArgs, resources: &[String]) {
+//     println!();
+//     println!("\x1b[1;32m  JSOND Http Server started\x1b[0m");
+//     println!();
+//     println!(
+//         "\x1b[90m  >\x1b[0m Local:   \x1b[36mhttp://{}:{}/\x1b[0m",
+//         args.host,
+//         addr.port()
+//     );
+//     println!("\x1b[90m  >\x1b[0m Network: \x1b[36mhttp://{addr}/\x1b[0m");
+//     println!();
 
-    if resources.is_empty() {
-        println!("  \x1b[33m  No resources found.\x1b[0m");
-    } else {
-        println!("  \x1b[1mEndpoints:\x1b[0m");
-        println!();
+//     if resources.is_empty() {
+//         println!("  \x1b[33m  No resources found.\x1b[0m");
+//     } else {
+//         println!("  \x1b[1mEndpoints:\x1b[0m");
+//         println!();
 
-        for name in resources {
-            println!(
-                "\x1b[90m  >\x1b[0m \x1b[36mhttp://{}:{}/{}\x1b[0m",
-                args.host,
-                addr.port(),
-                name
-            );
-        }
-    }
+//         for name in resources {
+//             println!(
+//                 "\x1b[90m  >\x1b[0m \x1b[36mhttp://{}:{}/{}\x1b[0m",
+//                 args.host,
+//                 addr.port(),
+//                 name
+//             );
+//         }
+//     }
 
-    println!();
+//     println!();
 
-    if args.watch {
-        println!("  \x1b[90m>\x1b[0m Watching for file changes...");
-    }
+//     if args.watch {
+//         println!("  \x1b[90m>\x1b[0m Watching for file changes...");
+//     }
 
-    if args.readonly {
-        println!("  \x1b[33m>\x1b[0m \x1b[1mReadonly mode\x1b[0m — write operations disabled");
-    }
+//     if args.readonly {
+//         println!("  \x1b[33m>\x1b[0m \x1b[1mReadonly mode\x1b[0m — write
+// operations disabled");     }
 
-    println!();
-    println!("  Press Ctrl+C to stop");
-    println!();
-}
+//     println!();
+//     println!("  Press Ctrl+C to stop");
+//     println!();
+// }
 
 /// Waits for a shutdown signal, then allows a brief grace period before
 /// returning.
@@ -108,9 +115,7 @@ async fn shutdown_signal() {
     use tokio::{signal, time};
 
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

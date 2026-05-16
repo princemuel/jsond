@@ -87,10 +87,7 @@ pub enum WhereExpr {
 // ── Parse ─────────────────────────────────────────────────────────────────────
 
 pub fn parse<S: BuildHasher>(raw: &HashMap<String, String, S>) -> QueryParams {
-    let mut qp = QueryParams {
-        per_page: 10,
-        ..Default::default()
-    };
+    let mut qp = QueryParams { per_page: 10, ..Default::default() };
 
     for (k, v) in raw {
         match k.as_str() {
@@ -101,12 +98,8 @@ pub fn parse<S: BuildHasher>(raw: &HashMap<String, String, S>) -> QueryParams {
             "_end" => qp.end = v.parse().ok(),
             "_limit" => qp.limit = v.parse().ok(),
             "q" => qp.search = Some(v.to_owned()),
-            "_embed" => qp
-                .embed
-                .extend(v.split(',').map(str::trim).map(String::from)),
-            "_expand" => qp
-                .expand
-                .extend(v.split(',').map(str::trim).map(String::from)),
+            "_embed" => qp.embed.extend(v.split(',').map(str::trim).map(String::from)),
+            "_expand" => qp.expand.extend(v.split(',').map(str::trim).map(String::from)),
             "_where" => qp.r#where = parse_where(v),
             "_dependent" => {} // handled in the delete handler, not query
             key => {
@@ -132,10 +125,7 @@ fn parse_sort(s: &str) -> Vec<SortKey> {
                 (false, segment)
             };
 
-            SortKey {
-                desc,
-                path: dotted(field),
-            }
+            SortKey { desc, path: dotted(field) }
         })
         .collect()
 }
@@ -143,22 +133,15 @@ fn parse_sort(s: &str) -> Vec<SortKey> {
 /// `author.name:gte=foo`  or  `views=100` (no operator = eq)
 fn parse_filter(key: &str, value: &str) -> Option<Filter> {
     // Split on `:` to separate path from operator
-    let (path, op) = if let Some((path, op)) = key.split_once(':') {
-        (path, parse_op(op)?)
-    } else {
-        (key, Op::Eq)
-    };
+    let (path, op) =
+        if let Some((path, op)) = key.split_once(':') { (path, parse_op(op)?) } else { (key, Op::Eq) };
 
     // Skip internal underscore params that sneak through
     if path.starts_with('_') {
         return None;
     }
 
-    Some(Filter {
-        path: dotted(path),
-        op,
-        value: value.to_owned(),
-    })
+    Some(Filter { path: dotted(path), op, value: value.to_owned() })
 }
 
 fn parse_op(s: &str) -> Option<Op> {
@@ -236,15 +219,8 @@ fn collect_leaf_conds(obj: &Map<String, Value>, path: &mut Vec<String>, out: &mu
 #[derive(Clone, Copy)]
 pub enum Pagination {
     None,
-    Page {
-        page: usize,
-        per_page: usize,
-        total: usize,
-    },
-    Slice {
-        start: usize,
-        total: usize,
-    },
+    Page { page: usize, per_page: usize, total: usize },
+    Slice { start: usize, total: usize },
 }
 
 pub struct QueryResult {
@@ -294,32 +270,17 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
 
         items = items.into_iter().skip(start).take(per_page).collect();
 
-        QueryResult {
-            items,
-            pagination: Pagination::Page {
-                page,
-                per_page,
-                total,
-            },
-        }
+        QueryResult { items, pagination: Pagination::Page { page, per_page, total } }
     } else if qp.start.is_some() || qp.end.is_some() || qp.limit.is_some() {
         let start = qp.start.unwrap_or(0);
-        let end = qp
-            .end
-            .unwrap_or_else(|| qp.limit.map_or(total, |limit| start + limit));
+        let end = qp.end.unwrap_or_else(|| qp.limit.map_or(total, |limit| start + limit));
         let slice_len = end.saturating_sub(start).min(total.saturating_sub(start));
 
         items = items.into_iter().skip(start).take(slice_len).collect();
 
-        QueryResult {
-            items,
-            pagination: Pagination::Slice { start, total },
-        }
+        QueryResult { items, pagination: Pagination::Slice { start, total } }
     } else {
-        QueryResult {
-            items,
-            pagination: Pagination::None,
-        }
+        QueryResult { items, pagination: Pagination::None }
     }
 }
 
@@ -328,11 +289,9 @@ fn eval_where(item: &Value, expr: &WhereExpr) -> bool {
     match *expr {
         WhereExpr::And(ref v) => v.iter().all(|exp| eval_where(item, exp)),
         WhereExpr::Or(ref v) => v.iter().any(|exp| eval_where(item, exp)),
-        WhereExpr::Cond(Filter {
-            op,
-            ref path,
-            ref value,
-        }) => matches_op(get_nested(item, path), op, value),
+        WhereExpr::Cond(Filter { op, ref path, ref value }) => {
+            matches_op(get_nested(item, path), op, value)
+        }
     }
 }
 

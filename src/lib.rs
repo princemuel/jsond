@@ -1,7 +1,7 @@
 pub mod cli;
 pub mod db;
 pub mod error;
-pub mod ids;
+pub mod id;
 pub mod middleware;
 pub mod query;
 pub mod router;

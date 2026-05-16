@@ -49,10 +49,7 @@ impl IntoResponse for Error {
             Self::ReadOnly => (StatusCode::FORBIDDEN, self.to_string()),
             Self::Json(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             Self::Io(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Unknown Error".to_owned(),
-            ),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Unknown Error".to_owned()),
         };
 
         let body = Json(json!({ "error": message }));
