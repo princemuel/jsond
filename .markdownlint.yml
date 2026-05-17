@@ -1,0 +1,6 @@
+MD033:
+  allowed_elements: [details, summary]
+MD059: false
+
+MD013:
+  line_length: 108

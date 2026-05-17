@@ -169,6 +169,8 @@ Create a `db.json` or `db.json5` file. Each top-level key becomes a REST resourc
 
 You can read more about the JSON5 format [here](https://github.com/json5/json5).
 
+</details>
+
 #### Collections (arrays). Get full CRUD endpoints
 
 ```json

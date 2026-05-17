@@ -3,7 +3,7 @@
 # https://rust-lang.github.io/rust-clippy/master/index.html
 
 # Minimum Supported Rust Version (conservative for WASM tooling)
-msrv                                  = "1.90"
+msrv                                  = "1.84"
 absolute-paths-max-segments           = 3
 allow-expect-in-tests                 = true
 allow-panic-in-tests                  = true
