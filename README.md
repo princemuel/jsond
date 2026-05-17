@@ -336,7 +336,7 @@ curl http://localhost:3000/posts?q=hello
 
 ### Relations
 
-**Embed child records** (hasMany — uses `{parent}Id` convention):
+**Embed child records** (hasMany uses `{parent}Id` convention):
 
 ```sh
 # Attach comments to each post
@@ -346,7 +346,7 @@ curl http://localhost:3000/posts/1?_embed=comments
 
 Each post gets a `comments` array.
 
-**Expand parent record** (belongsTo — uses `{parent}Id` field):
+**Expand parent record** (belongsTo uses `{parent}Id` field):
 
 ```sh
 # Attach author to each post
