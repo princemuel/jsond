@@ -34,32 +34,34 @@ path = "src/main.rs"
 anyhow             = "1"
 axum               = { version = "0.8", features = [] }
 clap               = { version = "4", features = ["derive", "env"] }
+json-patch         = "4"
 json5              = "1"
-mime               = "0.3"
-notify             = { version = "8", features = ["macos_kqueue"] }
-rand               = "0.10"
-serde              = { version = "1", features = ["derive"] }
-serde_json         = { version = "1", features = ["preserve_order"] }
+notify             = "8"
+serde_json         = "1"
 thiserror          = "2"
-tokio              = { version = "1", features = ["full"] }
-tokio-stream       = "0.1"
-tower              = { version = "0.5", features = ["full"] }
+tokio              = { version = "1", features = [
+  "fs",
+  "macros",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time"
+] }
+tower              = { version = "0.5", features = [] }
 tower-http         = { version = "0.6", features = [
   "compression-full",
   "cors",
   "fs",
   "limit",
-  "sensitive-headers",
-  "set-header",
   "trace"
 ] }
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-uuid               = { version = "1", features = ["serde", "v4", "v7"] }
+uuid               = { version = "1", features = ["v4", "v7"] }
 
 [dev-dependencies]
-axum-test  = "20"
-tokio-test = "0.4"
+reqwest  = { version = "0.13", features = ["json"] }
+tempfile = "3"
 
 [features]
 default = []
@@ -119,7 +121,7 @@ panic_in_result_fn                   = "deny"
 pathbuf_init_then_push               = "deny"
 pattern_type_mismatch                = "warn"
 precedence_bits                      = "deny"
-print_stdout                         = "warn"
+# print_stdout                         = "warn"
 pub_without_shorthand                = "deny"
 rc_buffer                            = "deny"
 rc_mutex                             = "deny"
@@ -134,7 +136,7 @@ std_instead_of_core                  = "deny"
 str_to_string                        = "deny"
 string_add                           = "deny"
 string_lit_chars_any                 = "deny"
-tests_outside_test_module            = "deny"
+tests-outside-test-module            = "deny"
 todo                                 = "warn"
 unneeded_field_pattern               = "warn"
 unseparated_literal_suffix           = "warn"
@@ -189,6 +191,7 @@ debug     = true
 
 [profile.release]
 opt-level     = 3
+debug         = false
 strip         = true
 lto           = true
 panic         = "abort"
