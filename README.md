@@ -1,6 +1,6 @@
 # JSOND (Json Daemon)
 
-A blazingly fast and 90% spec-compliant Rust reimplementation of the npm package [`json-server v1`](https://github.com/typicode/json-server).
+A blazingly fast and 90% spec-compliant Rust reimplementation of the npm package [`json-server`](https://github.com/typicode/json-server).
 Built on [Tokio](https://tokio.rs/) and [Axum](https://github.com/tokio-rs/axum).
 
 ---
