@@ -435,11 +435,11 @@ curl -X DELETE 'http://localhost:3000/posts/1?_dependent=comments'
 
 ### Response Headers
 
-| Header          | Description                                   |
-| --------------- | --------------------------------------------- |
-| `X-Total-Count` | Total items before pagination                 |
-| `Content-Type`  | Always `application/json`                     |
-| CORS headers    | Enabled by default (disable with `--no-cors`) |
+| Header          | Description                                |
+| --------------- | ------------------------------------------ |
+| `X-Total-Count` | Total items before pagination              |
+| `Content-Type`  | Always `application/json`                  |
+| CORS headers    | Disabled by default (enable with `--cors`) |
 
 ---
 
@@ -457,7 +457,7 @@ Options:
   -s, --static <STATIC>            Serve static files from this directory [default: public]
       --delay <DELAY>              Add artificial delay in milliseconds to all responses [default: 0]
   -w, --watch                      Watch the database file for changes and reload automatically
-      --cors                       Enable/Disable CORS headers [default: true]
+      --cors                       Enable/Disable CORS headers [default: false]
       --readonly                   Readonly mode: disable POST, PUT, PATCH, DELETE
       --id-strategy <ID_STRATEGY>  [default: uuidv7] [possible values: int, uuidv4, uuidv7]
       --per-page <PER_PAGE>        Number of items per page [default: 10]
@@ -499,7 +499,7 @@ jsond db.json --static ./public               # Serve static files. auto-detecte
 - IDs always stored as strings
 - Auto-generated IDs on POST (configurable strategy)
 - Hot-reload on file changes
-- CORS enabled by default
+- CORS disabled by default
 - Static file serving from `./public`
 - JSON5 input format support
 

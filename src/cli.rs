@@ -30,8 +30,8 @@ pub struct CliArgs {
     #[arg(short, long, default_value_t = true)]
     pub watch: bool,
 
-    /// Enable CORS headers
-    #[arg(long, default_value_t = true)]
+    /// Enable or disable CORS headers
+    #[arg(long, default_value_t = false)]
     pub cors: bool,
 
     /// Readonly mode: disable POST, PUT, PATCH, DELETE

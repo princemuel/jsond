@@ -15,7 +15,6 @@ pub fn router() -> Router<Database> {
 }
 
 mod handlers {
-
     use axum::Json;
     use axum::extract::{Path, State};
     use axum::response::IntoResponse;
