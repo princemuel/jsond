@@ -1,24 +1,14 @@
 {
   "semantic_tokens": "combined",
   "languages": {
-    "CSS": {
-      "language_servers": ["tailwindcss-intellisense-css", "!vscode-css-language-server", "..."],
-    },
-    "SQL": {
-      "formatter": {
-        "external": {
-          "command": "sql-formatter",
-        },
-      },
-    },
     "kulala-http": {
       "formatter": {
         "external": {
           "command": "kulala-fmt",
-          "arguments": ["format", "--stdin", "{buffer_path}"],
-        },
+          "arguments": ["format", "--stdin", "{buffer_path}"]
+        }
       },
-      "format_on_save": "on",
+      "format_on_save": "on"
     },
     "Shell Script": {
       "format_on_save": "on",
@@ -26,17 +16,17 @@
         "external": {
           "command": "shfmt",
           // Change `--indent 2` to match your preferred tab_size
-          "arguments": ["--filename", "{buffer_path}", "--indent", "2"],
-        },
-      },
-    },
+          "arguments": ["--filename", "{buffer_path}", "--indent", "2"]
+        }
+      }
+    }
   },
   "lsp": {
     "kulala-lsp": {
       "binary": {
         "path": "~/.local/share/pnpm/kulala-ls",
-        "arguments": ["--stdio"],
-      },
+        "arguments": ["--stdio"]
+      }
     },
     "rust-analyzer": {
       "initialization_options": {
@@ -52,20 +42,20 @@
           "prefix": "crate",
           "merge": { "glob": true },
           "preferNoStd": true,
-          "preferPrelude": true,
+          "preferPrelude": true
         },
         "inlayHints": {
           "typeHints": { "enable": false },
           "chainingHints": { "enable": false },
-          "parameterHints": { "enable": false },
+          "parameterHints": { "enable": false }
         },
         "rustfmt": { "extraArgs": ["+nightly"] },
         "semanticHighlighting": {
           "doc": { "comment": { "inject": { "enable": true } } },
-          "punctuation": { "enable": true, "specialization": { "enable": true } },
+          "punctuation": { "enable": true, "specialization": { "enable": true } }
         },
-        "completion": { "autoimport": { "enable": true } },
-      },
-    },
-  },
+        "completion": { "autoimport": { "enable": true } }
+      }
+    }
+  }
 }

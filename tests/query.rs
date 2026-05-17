@@ -1,4 +1,4 @@
-//! Query parameter tests — filtering, sorting, pagination, full-text search,
+//! Query parameter tests. Filtering, sorting, pagination, full-text search,
 //! and `_where` complex expressions.
 #![expect(clippy::tests_outside_test_module)]
 pub mod common;
@@ -51,7 +51,7 @@ async fn filter_ne() {
     assert_eq!(arr.len(), 2);
 }
 
-// Numeric range operators
+// Numeric range operators. gt, gte, lt, lte
 #[tokio::test]
 async fn filter_gt() {
     let s = TestServer::new(fixture_db()).await;
@@ -115,7 +115,7 @@ async fn filter_in_single_value() {
     assert_eq!(ids(&body), vec!["2"]);
 }
 
-// String operators
+// String operators: contains, startsWith, endsWith
 #[tokio::test]
 async fn filter_contains_case_insensitive() {
     let s = TestServer::new(fixture_db()).await;
@@ -327,7 +327,7 @@ async fn page_pagination_data_length() {
 #[tokio::test]
 async fn page_pagination_last_page_partial() {
     let s = TestServer::new(fixture_db()).await;
-    // 4 items, 3 per page → page 2 has 1 item
+    // 4 items, 3 per page. page 2 has 1 item
     let body = s.get_qs_json("/posts", "_page=2&_per_page=3").await;
     assert_eq!(body.get("data").unwrap().as_array().unwrap().len(), 1);
 }
@@ -335,7 +335,7 @@ async fn page_pagination_last_page_partial() {
 #[tokio::test]
 async fn page_pagination_items_is_total_not_page_count() {
     let s = TestServer::new(fixture_db()).await;
-    // Apply a filter first — items must reflect filtered total
+    // Apply a filter first. items must reflect filtered total
     let body = s.get_qs_json("/posts", "author=alice&_page=1&_per_page=10").await;
     // alice has 2 posts; items should be 2, not 4
     assert_eq!(body.get("items").unwrap(), 2);
@@ -383,12 +383,11 @@ async fn slice_has_x_total_count_header() {
 async fn slice_start_only_goes_to_end_of_collection() {
     let s = TestServer::new(fixture_db()).await;
     let body = s.get_qs_json("/posts", "_start=2").await;
-    // 4 total, start=2 → 2 items
+    // 4 total, start=2 => 2 items
     assert_eq!(body.as_array().unwrap().len(), 2);
 }
 
-// _where complex filter──
-
+// _where complex filters: and, or, dotted-paths
 #[tokio::test]
 async fn where_simple_condition() {
     let s = TestServer::new(fixture_db()).await;
@@ -447,7 +446,7 @@ async fn where_overrides_plain_filter_params() {
     let s = TestServer::new(fixture_db()).await;
     // Plain param says author=alice, _where says views > 400.
     // When _where is present it should override the plain param.
-    // Result: only views > 400 (carol, id=4) — not alice-filtered.
+    // Result: only views > 400 (carol, id=4). not alice-filtered.
     let qs = r#"author=alice&_where={"views":{"gt":400}}"#;
     let body = s.get_qs_json("/posts", qs).await;
     let result_ids = ids(&body);

@@ -1,5 +1,4 @@
-//! CRUD lifecycle tests: GET, POST, PUT, PATCH, DELETE, cascade delete,
-//! id coercion, auto-create collection, error responses.
+//! CRUD lifecycle tests: GET, POST, PUT, PATCH, DELETE, cascading DELETE,
 #![expect(clippy::tests_outside_test_module)]
 pub mod common;
 use common::{TestServer, cascade_db, fixture_db, ids};
@@ -59,8 +58,7 @@ async fn get_unknown_collection_returns_error_json() {
     assert!(body.get("error").unwrap().is_string());
 }
 
-//   GET single item
-
+// GET single item
 #[tokio::test]
 async fn get_item_by_id_returns_correct_item() {
     let s = TestServer::new(fixture_db()).await;
@@ -174,8 +172,6 @@ async fn post_to_new_resource_lists_in_root() {
 }
 
 // PUT replace
-// ───────────────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn put_returns_200() {
     let s = TestServer::new(fixture_db()).await;
@@ -215,8 +211,6 @@ async fn put_missing_item_is_404() {
 }
 
 // PATCH partial update
-// ──────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn patch_returns_200() {
     let s = TestServer::new(fixture_db()).await;
@@ -335,7 +329,7 @@ async fn cascade_delete_removes_parent() {
 #[tokio::test]
 async fn delete_without_dependent_leaves_children() {
     let s = TestServer::new(cascade_db()).await;
-    // Plain delete — no cascade
+    // Plain delete. no cascade
     s.delete("/posts/1").await;
     let comments = s.get_json("/comments").await;
     // All 3 comments still present (orphaned, but that's the caller's choice)
@@ -344,7 +338,7 @@ async fn delete_without_dependent_leaves_children() {
 
 // Int id strategy
 #[tokio::test]
-async fn int_ids_start_at_one_for_empty_collection() {
+async fn int_ids_start_at_one_for_empty_collections() {
     let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Int).await;
     let body = s.post_json("/items", json!({ "name": "first" })).await;
     assert_eq!(body.get("id").unwrap(), "1");
@@ -365,7 +359,7 @@ async fn int_ids_auto_increment_sequentially() {
 
 #[tokio::test]
 async fn int_ids_continue_from_existing_max() {
-    // Existing max id is 5 — next must be 6
+    // Existing max id is 5. the next must be 6
     let s = TestServer::with_strategy(
         json!({ "items": [{ "id": "3" }, { "id": "5" }, { "id": "1" }] }),
         IdStrategy::Int,
@@ -403,7 +397,7 @@ async fn uuidv7_ids_are_lexicographically_ordered() {
     let id_a = a.get("id").unwrap().as_str().unwrap();
     let id_b = b.get("id").unwrap().as_str().unwrap();
     let id_c = c.get("id").unwrap().as_str().unwrap();
-    // UUIDv7 is time-sortable — lexicographic order == insertion order
+    // UUIDv7 is time-sortable. lexicographic order == insertion order
     assert!(id_a < id_b, "v7 ids must be lexicographically increasing");
     assert!(id_b < id_c, "v7 ids must be lexicographically increasing");
 }

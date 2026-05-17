@@ -90,23 +90,16 @@ impl Database {
         let mut g = self.write().await;
 
         if item.get("id").is_none() {
-            // let collection = g
-            //     .data
-            //     .get(resource)
-            //     .and_then(Value::as_array)
-            //     .map(Vec::as_slice)
-            //     .unwrap_or(&[]);
-
             const EMPTY: &[Value] = &[];
             let collection =
                 g.data.get(resource).and_then(Value::as_array).map_or_else(|| EMPTY, Vec::as_slice);
 
             let id = g.id_strategy.generate(collection);
-            normalize_id(&mut item);
-
             item.as_object_mut()
                 .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
                 .insert("id".to_owned(), Value::String(id));
+        } else {
+            normalize_id(&mut item);
         }
 
         match g.data.get_mut(resource) {
@@ -164,7 +157,7 @@ impl Database {
 
         // RFC 7396 JSON Merge Patch: nulls delete keys, objects recurse, scalars
         // replace
-        json_patch::merge(existing, &patch_value);
+        merge_json_rfc_7396(existing, &patch_value);
 
         let item = arr.get(pos).cloned().ok_or(Error::NotFound)?;
         persist(&g)?;
@@ -294,3 +287,58 @@ fn persist(g: &Inner) -> Result<()> {
 /// naive singularizer: strips trailing `s`.
 /// `posts` -> `post`, `comments` -> `comment`
 fn singular(s: &str) -> &str { s.strip_suffix("s").unwrap_or(s) }
+
+// Add this example to the doc comment of `merge_json_rfc_7396` once the
+// function is public.
+// // # Example
+// // Create and patch document:
+// //
+// // ```rust
+// // use serde_json::json;
+// //
+// // use crate::db::merge_json_rfc_7396;
+// // # pub fn main() {
+// // let mut doc = json!({
+// //   "title": "Goodbye!",
+// //   "author" : { "givenName": "John", "familyName": "Doe" },
+// //   "tags":[ "example", "sample" ],
+// //   "content": "This will be unchanged"
+// // });
+// //
+// // let patch = json!({
+// //   "title": "Hello!",
+// //   "phoneNumber": "+01-123-456-7890",
+// //   "author": { "familyName": null },
+// //   "tags": [ "example" ]
+// // });
+// //
+// // merge_json_rfc_7396(&mut doc, &patch);
+// // assert_eq!(doc, json!({
+// //   "title": "Hello!",
+// //   "author" : { "givenName": "John" },
+// //   "tags": [ "example" ],
+// //   "content": "This will be unchanged",
+// //   "phoneNumber": "+01-123-456-7890"
+// // }));
+// // # }
+/// Patch provided JSON document (given as `serde_json::Value`) in place with
+/// JSON Merge Patch (RFC 7396).
+pub fn merge_json_rfc_7396(doc: &mut Value, patch: &Value) {
+    let Some(patch_map) = patch.as_object() else {
+        *doc = patch.clone();
+        return;
+    };
+
+    if !doc.is_object() {
+        *doc = Value::Object(Map::new());
+    }
+    let Some(map) = doc.as_object_mut() else { return };
+
+    for (key, value) in patch_map {
+        if value.is_null() {
+            map.remove(key.as_str());
+        } else {
+            merge_json_rfc_7396(map.entry(key.as_str()).or_insert(Value::Null), value);
+        }
+    }
+}

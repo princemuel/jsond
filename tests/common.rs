@@ -1,8 +1,9 @@
 //! Shared test harness.
 //!
 //! `TestServer` spins up a real axum server on a random OS-assigned port per
-//! test, backed by a `NamedTempFile`. Everything is real — real TCP, real
-//! JSON parsing, real file I/O.  No mocking.
+//! test, backed by a `NamedTempFile`.
+//!
+//! Everything is real. the TCP, real JSON parsing, real file I/O.  No mocking.
 //!
 //! The server task is detached with `tokio::spawn`; it is implicitly cancelled
 //! when the test runtime shuts down after each `#[tokio::test]`.
@@ -21,7 +22,7 @@ use tower_http::cors::{Any, CorsLayer};
 pub struct TestServer {
     pub base_url: String,
     pub client: reqwest::Client,
-    // stays alive for the test duration. dropping it deletes the file.
+    // stays alive for a test's duration. dropping it deletes the file.
     _db_file: NamedTempFile,
 }
 
@@ -81,8 +82,7 @@ impl TestServer {
         self.client.get(format!("{}{}?{}", self.base_url, path, qs)).send().await.unwrap()
     }
 
-    // ── Convenience: deserialise to Value directly ────────────────────────────
-
+    // Helpers: deserialise to Value directly
     pub async fn get_json(&self, path: &str) -> Value { self.get(path).await.json().await.unwrap() }
 
     pub async fn get_qs_json(&self, path: &str, qs: &str) -> Value {
