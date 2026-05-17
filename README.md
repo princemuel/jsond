@@ -24,7 +24,7 @@ Create a `db.json` file:
 
 Start the server:
 
-```bash
+```sh
 jsond db.json
 ```
 
@@ -32,7 +32,7 @@ The server starts at `http://localhost:3000`.
 
 Query your API:
 
-```bash
+```sh
 curl http://localhost:3000/posts
 curl http://localhost:3000/posts/1
 curl http://localhost:3000/posts?views:gt=100
@@ -87,15 +87,15 @@ curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
 
 Requires [Rust 1.84+](https://www.rust-lang.org/tools/install).
 
-```bash
+```sh
 git clone git@github.com:princemuel/jsond.git
 ```
 
-```bash
+```sh
 cargo install --path .
 ```
 
-```bash
+```sh
 jsond db.json
 ```
 
@@ -103,14 +103,14 @@ jsond db.json
 
 Download and run the install script:
 
-```bash
+```sh
 curl -fsSL https://raw.githubusercontent.com/princemuel/jsond/main/install.sh | sh
 jsond db.json
 ```
 
 Or manually:
 
-```bash
+```sh
 wget https://raw.githubusercontent.com/princemuel/jsond/main/install.sh
 sh install.sh
 jsond db.json
@@ -118,7 +118,7 @@ jsond db.json
 
 ### Option 3: Build from Source
 
-```bash
+```sh
 cargo build --release
 ./target/release/jsond db.json
 ```
@@ -207,7 +207,7 @@ You can read more about the JSON5 format [here](https://github.com/json5/json5).
 
 ### Basic Requests
 
-```bash
+```sh
 # List all posts
 curl http://localhost:3000/posts
 
@@ -237,7 +237,7 @@ curl -X DELETE http://localhost:3000/posts/1
 
 Use `field=value` for equality or `field:operator=value` for conditions:
 
-```bash
+```sh
 # Exact match
 curl http://localhost:3000/posts?title=Hello
 
@@ -267,7 +267,7 @@ curl http://localhost:3000/posts?title:endsWith=o
 
 Use dot notation to filter on nested properties:
 
-```bash
+```sh
 curl http://localhost:3000/posts?author.name=alice
 curl http://localhost:3000/posts?meta.tags:contains=rust
 ```
@@ -276,7 +276,7 @@ curl http://localhost:3000/posts?meta.tags:contains=rust
 
 Combine parameters with `&`:
 
-```bash
+```sh
 # Posts with views > 50 AND title contains "rust"
 curl 'http://localhost:3000/posts?views:gt=50&title:contains=rust'
 ```
@@ -285,7 +285,7 @@ curl 'http://localhost:3000/posts?views:gt=50&title:contains=rust'
 
 For advanced queries, use `_where` with a JSON object:
 
-```bash
+```sh
 # Posts with (views > 100) OR (author name < "m")
 curl 'http://localhost:3000/posts?_where={"or":[{"views":{"gt":100}},{"author":{"name":{"lt":"m"}}}]}'
 
@@ -297,7 +297,7 @@ curl 'http://localhost:3000/posts?_where={"and":[{"views":{"gte":50}},{"title":{
 
 Use `_sort` with comma-separated fields. Prefix with `-` for descending:
 
-```bash
+```sh
 # Sort by title ascending
 curl http://localhost:3000/posts?_sort=title
 
@@ -312,7 +312,7 @@ curl http://localhost:3000/posts?_sort=author.name,-views
 
 **Page-based** (returns envelope with metadata):
 
-```bash
+```sh
 curl http://localhost:3000/posts?_page=1&_per_page=10
 ```
 
@@ -332,7 +332,7 @@ Response:
 
 **Slice-based** (returns plain array with `X-Total-Count` header):
 
-```bash
+```sh
 curl http://localhost:3000/posts?_start=0&_end=10
 curl http://localhost:3000/posts?_start=0&_limit=5
 ```
@@ -343,7 +343,7 @@ Both methods include `X-Total-Count` header with the pre-pagination total.
 
 Search all string fields recursively (case-insensitive):
 
-```bash
+```sh
 curl http://localhost:3000/posts?q=hello
 ```
 
@@ -351,7 +351,7 @@ curl http://localhost:3000/posts?q=hello
 
 **Embed child records** (hasMany — uses `{parent}Id` convention):
 
-```bash
+```sh
 # Attach comments to each post
 curl http://localhost:3000/posts?_embed=comments
 curl http://localhost:3000/posts/1?_embed=comments
@@ -361,7 +361,7 @@ Each post gets a `comments` array.
 
 **Expand parent record** (belongsTo — uses `{parent}Id` field):
 
-```bash
+```sh
 # Attach author to each post
 curl http://localhost:3000/posts?_expand=author
 curl http://localhost:3000/comments?_expand=post
@@ -371,7 +371,7 @@ Each child gets a parent object.
 
 Both can be comma-separated for multiple relations:
 
-```bash
+```sh
 curl http://localhost:3000/posts?_embed=comments,tags&_expand=author
 ```
 
@@ -379,7 +379,7 @@ curl http://localhost:3000/posts?_embed=comments,tags&_expand=author
 
 Delete a resource and all dependents:
 
-```bash
+```sh
 # Delete post 1 and all comments where postId == "1"
 curl -X DELETE 'http://localhost:3000/posts/1?_dependent=comments'
 ```
@@ -527,7 +527,7 @@ jsond db.json --static ./public               # Serve static files. auto-detecte
 
 By default, jsond serves static files from the `./public` directory as a fallback.
 
-```bash
+```sh
 mkdir public
 echo '<h1>Hello</h1>' > public/index.html
 jsond db.json
@@ -537,7 +537,7 @@ Access at `http://localhost:3000/`
 
 Change the directory:
 
-```bash
+```sh
 jsond db.json --static ./static
 ```
 
@@ -555,7 +555,7 @@ When creating resources via POST without an `id`, jsond auto-generates one:
 
 Use `--id-strategy` to change:
 
-```bash
+```sh
 jsond db.json --id-strategy uuidv4
 jsond db.json --id-strategy int
 ```
@@ -566,7 +566,7 @@ jsond db.json --id-strategy int
 
 Run with `--readonly` to disable all writes (POST, PUT, PATCH, DELETE):
 
-```bash
+```sh
 jsond db.json --readonly
 ```
 
@@ -576,7 +576,7 @@ All write requests return `403 Forbidden`.
 
 Run with `--watch` to automatically reload when the database file changes:
 
-```bash
+```sh
 jsond db.json --watch
 ```
 
@@ -586,7 +586,7 @@ Useful for hand-editing JSON while the server runs.
 
 Run integration tests:
 
-```bash
+```sh
 cargo test
 ```
 
