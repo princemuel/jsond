@@ -50,8 +50,8 @@ curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
     - [Option 3: Build from Source](#option-3-build-from-source)
   - [Usage](#usage)
     - [Database Format](#database-format)
-      - [Collections (arrays). Get full CRUD endpoints](#collections-arrays-get-full-crud-endpoints)
-      - [Singletons (objects) get GET / PUT / PATCH](#singletons-objects-get-get--put--patch)
+      - [Collections (arrays)](#collections-arrays)
+      - [Singletons (objects)](#singletons-objects)
     - [Basic Requests](#basic-requests)
     - [Filtering](#filtering)
     - [Nested Field Paths](#nested-field-paths)
@@ -171,7 +171,7 @@ You can read more about the JSON5 format [here](https://github.com/json5/json5).
 
 </details>
 
-#### Collections (arrays). Get full CRUD endpoints
+#### Collections (arrays)
 
 ```json
 {
@@ -179,16 +179,7 @@ You can read more about the JSON5 format [here](https://github.com/json5/json5).
 }
 ```
 
-| Method | Route        | Action            |
-| ------ | ------------ | ----------------- |
-| GET    | `/posts`     | List all posts    |
-| GET    | `/posts/:id` | Get a single post |
-| POST   | `/posts`     | Create a post     |
-| PUT    | `/posts/:id` | Replace a post    |
-| PATCH  | `/posts/:id` | Partially update  |
-| DELETE | `/posts/:id` | Delete a post     |
-
-#### Singletons (objects) get GET / PUT / PATCH
+#### Singletons (objects)
 
 ```json
 {
@@ -198,12 +189,6 @@ You can read more about the JSON5 format [here](https://github.com/json5/json5).
   }
 }
 ```
-
-| Method | Route      | Action            |
-| ------ | ---------- | ----------------- |
-| GET    | `/profile` | Get the singleton |
-| PUT    | `/profile` | Replace it        |
-| PATCH  | `/profile` | Partially update  |
 
 ---
 
