@@ -166,7 +166,7 @@ Create a `db.json` or `db.json5` file. Each top-level key becomes a REST resourc
 
 <details>
 
-<summary>View db.json5 example</summary>
+<summary>View the db.json5 example</summary>
 
 ```json5
 {
