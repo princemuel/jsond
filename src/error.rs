@@ -19,6 +19,9 @@ pub enum Error {
     #[error("this resource already exists")]
     Conflict,
 
+    #[error("this header value is invalid")]
+    InvalidHeader,
+
     #[error("'{0}' is not a collection resource")]
     NotCollection(String),
 

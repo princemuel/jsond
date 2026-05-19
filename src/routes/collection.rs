@@ -68,9 +68,7 @@ mod handlers {
         }
 
         let mut headers = HeaderMap::new();
-        // TODO: remove this unwrap once we have a proper header abstraction in place.
-        #[expect(clippy::unwrap_used)]
-        headers.insert("X-Total-Count", total.to_string().parse().unwrap());
+        headers.insert("X-Total-Count", total.to_string().parse().map_err(|_e| Error::InvalidHeader)?);
 
         let body = match res.pagination {
             Pagination::Page { page, per_page, total } => {
@@ -85,7 +83,7 @@ mod handlers {
                     "data":  items,   // spec: "data"  = page records
                 })
             }
-            // Slice or no pagination → plain array
+            // Slice or no pagination => plain array
             _ => json!(items),
         };
 
@@ -100,15 +98,11 @@ mod handlers {
         let mut item = db.find(&resource, &id).await.ok_or(Error::NotFound)?;
 
         // Support _embed / _expand on single-item GETs
-        let embed_keys: Vec<String> = params
-            .get("_embed")
-            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
-            .unwrap_or_default();
+        let embed_keys: Vec<_> =
+            params.get("_embed").map(|s| s.split(',').map(str::trim).collect()).unwrap_or_default();
 
-        let expand_keys: Vec<String> = params
-            .get("_expand")
-            .map(|s| s.split(',').map(str::trim).map(String::from).collect())
-            .unwrap_or_default();
+        let expand_keys: Vec<_> =
+            params.get("_expand").map(|s| s.split(',').map(str::trim).collect()).unwrap_or_default();
 
         let mut items = vec![item];
         for embed in &embed_keys {
@@ -166,7 +160,7 @@ mod helpers {
 
     use crate::db::Database;
 
-    /// `_embed=comments` — hasMany.
+    /// `_embed=comments` -> hasMany.
     /// For each item, attaches `comments: [...]` where `comment.postId ==
     /// item.id`.
     ///
@@ -211,7 +205,7 @@ mod helpers {
         }
     }
 
-    /// `_expand=post` — belongsTo.
+    /// `_expand=post` -> belongsTo.
     /// For each item, attaches `post: {...}` by looking up `item.postId` in the
     /// parent collection. We try `{expand}s` first (e.g. "posts"), then the
     /// name as-is (e.g. "people"), matching json-server's own pluralisation
@@ -239,11 +233,13 @@ mod helpers {
             };
 
             let Some(fk_val) = obj.get(&fk) else { continue };
+
             #[expect(clippy::pattern_type_mismatch)]
             let fk_str = match fk_val {
                 Value::String(v) => v.to_owned(),
                 v => v.to_string(),
             };
+
             let parent = parents
                 .iter()
                 .find(|parent| {

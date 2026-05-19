@@ -1,9 +1,21 @@
 # JSOND (Json Daemon)
 
-A blazingly fast and 90% spec-compliant Rust reimplementation of the npm package [`json-server`](https://github.com/typicode/json-server).
+Jsond is a blazingly fast and 90% spec-compliant Rust reimplementation of the npm package [`json-server`](https://github.com/typicode/json-server).
 Built on [Tokio](https://tokio.rs/) and [Axum](https://github.com/tokio-rs/axum).
 
+It includes features from the old package and the upcoming v1 release.
+
 ---
+
+> [!NOTE]
+>
+> I've set up this project to publish its binaries on release automatically via Github Actions,
+> but that doesn't happen currently due to some issues with my Github Account.
+> Until that is resolved, you can use options
+> [1](#option-1-using-cargo) or [3](#option-3-build-from-source) to run this project.
+>
+> At the moment, it seems I may have to migrate the code to another platform,
+> possibly Codeberg
 
 ## Quick Start
 
