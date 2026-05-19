@@ -9,7 +9,7 @@ It includes features from the old package and the upcoming v1 release.
 
 > [!NOTE]
 >
-> I've set up this project to publish its binaries on release automatically via Github Actions,
+> I've set up this project to publish its binaries automatically on release via Github Actions,
 > but that doesn't happen currently due to some issues with my Github Account.
 > Until that is resolved, you can use options
 > [1](#option-1-using-cargo) or [3](#option-3-build-from-source) to run this project.
