@@ -100,6 +100,11 @@ curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
 Requires [Rust 1.84+](https://www.rust-lang.org/tools/install).
 
 ```sh
+# Install rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+```sh
 git clone git@github.com:princemuel/jsond.git
 ```
 
