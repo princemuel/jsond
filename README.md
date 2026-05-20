@@ -12,7 +12,7 @@ It includes features from the old package and the upcoming v1 release.
 > I've set up this project to publish its binaries automatically on release via Github Actions,
 > but that doesn't happen currently due to some issues with my Github Account.
 > Until that is resolved, you can use options
-> [1](#option-1-using-cargo) or [3](#option-3-build-from-source) to run this project.
+> [2a](#2a-via-cargo-install) or [2b](#2b-via-cargo-build) to run this project.
 >
 > At the moment, it seems I may have to migrate the code to another platform,
 > possibly Codeberg
@@ -57,9 +57,10 @@ curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
   - [Quick Start](#quick-start)
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
-    - [Option 1: Using Cargo](#option-1-using-cargo)
-    - [Option 2: Using Install Script](#option-2-using-install-script)
-    - [Option 3: Build from Source](#option-3-build-from-source)
+    - [Option 1: Using Install Script](#option-1-using-install-script)
+    - [Option 2: Using Cargo](#option-2-using-cargo)
+      - [2a: Via Cargo Install](#2a-via-cargo-install)
+      - [2b: Via Cargo Build](#2b-via-cargo-build)
   - [Usage](#usage)
     - [Database Format](#database-format)
       - [Collections (arrays)](#collections-arrays)
@@ -95,28 +96,7 @@ curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
 
 ## Installation
 
-### Option 1: Using Cargo
-
-Requires [Rust 1.84+](https://www.rust-lang.org/tools/install).
-
-```sh
-# Install the latest rust (if you don't have rust)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-```sh
-git clone git@github.com:princemuel/jsond.git
-```
-
-```sh
-cargo install --path .
-```
-
-```sh
-jsond db.json
-```
-
-### Option 2: Using Install Script
+### Option 1: Using Install Script
 
 Download and run the install script:
 
@@ -133,7 +113,30 @@ sh install.sh
 jsond db.json
 ```
 
-### Option 3: Build from Source
+### Option 2: Using Cargo
+
+Requires [Rust 1.84+](https://www.rust-lang.org/tools/install).
+
+```sh
+# Install the latest rust (if you don't have rust)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+```sh
+git clone git@github.com:princemuel/jsond.git
+```
+
+#### 2a: Via Cargo Install
+
+```sh
+cargo install --path .
+```
+
+```sh
+jsond db.json
+```
+
+#### 2b: Via Cargo Build
 
 ```sh
 cargo build --release
