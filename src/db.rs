@@ -14,7 +14,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::error::{Error, Result};
+use crate::error::Error;
 use crate::id::IdStrategy;
 
 #[derive(Clone)]
@@ -30,7 +30,11 @@ pub struct Inner {
 
 impl Database {
     /// Load a database from a JSON or JSON5 file.
-    pub fn load(path: impl AsRef<Path>, id_strategy: IdStrategy, readonly: bool) -> Result<Self> {
+    pub fn load(
+        path: impl AsRef<Path>,
+        id_strategy: IdStrategy,
+        readonly: bool,
+    ) -> Result<Self, Error> {
         let path = path.as_ref().to_path_buf();
         let content = fs::read_to_string(&path)?;
         let data = parse_db(&content, &path)?;
@@ -38,7 +42,7 @@ impl Database {
     }
 
     /// Reload from disk (used by file watcher).
-    pub async fn reload(&self) -> Result<()> {
+    pub async fn reload(&self) -> Result<(), Error> {
         let mut g = self.write().await;
         let content = fs::read_to_string(&g.path)?;
 
@@ -54,7 +58,9 @@ impl Database {
     // ##### Introspection #####
 
     /// Get the names of all top-level keys.
-    pub async fn resources(&self) -> Vec<String> { self.read().await.data.keys().cloned().collect() }
+    pub async fn resources(&self) -> Vec<String> {
+        self.read().await.data.keys().cloned().collect()
+    }
 
     /// is the key an array (`collection`).
     pub async fn is_collection(&self, resource: &str) -> bool {
@@ -86,7 +92,7 @@ impl Database {
     }
 
     /// Insert a new item, assigning a string id if one is not present.
-    pub async fn insert(&self, resource: &str, mut item: Value) -> Result<Value> {
+    pub async fn insert(&self, resource: &str, mut item: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
 
         if item.get("id").is_none() {
@@ -115,7 +121,7 @@ impl Database {
     }
 
     /// Full replace (PUT). Uses the id from the url in the body.
-    pub async fn replace(&self, resource: &str, id: &str, mut item: Value) -> Result<Value> {
+    pub async fn replace(&self, resource: &str, id: &str, mut item: Value) -> Result<Value, Error> {
         item.as_object_mut()
             .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
             .insert("id".to_owned(), Value::String(id.to_owned()));
@@ -135,7 +141,7 @@ impl Database {
     }
 
     /// Partial update (PATCH). Merges; the `id` is immutable.
-    pub async fn patch(&self, resource: &str, id: &str, item: Value) -> Result<Value> {
+    pub async fn patch(&self, resource: &str, id: &str, item: Value) -> Result<Value, Error> {
         let payload = item
             .as_object()
             .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?;
@@ -165,7 +171,12 @@ impl Database {
     }
 
     /// Delete an item. also delete dependents if `dependent_resource` is given
-    pub async fn delete(&self, resource: &str, id: &str, dependent: Option<&str>) -> Result<Value> {
+    pub async fn delete(
+        &self,
+        resource: &str,
+        id: &str,
+        dependent: Option<&str>,
+    ) -> Result<Value, Error> {
         let mut g = self.write().await;
         let arr = collection_mut(&mut g, resource)?;
         let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
@@ -179,7 +190,10 @@ impl Database {
             if let Some(&mut Value::Array(ref mut v)) = g.data.get_mut(key) {
                 v.retain(|item| {
                     item.get(&fk).and_then(Value::as_str) != Some(id)
-                        && item.get(&fk).map(|v| v.to_string().trim_matches('"').to_owned()).as_deref()
+                        && item
+                            .get(&fk)
+                            .map(|v| v.to_string().trim_matches('"').to_owned())
+                            .as_deref()
                             != Some(id)
                 });
             }
@@ -190,7 +204,7 @@ impl Database {
     }
 
     /// Replace a singleton entirely (PUT).
-    pub async fn replace_singleton(&self, resource: &str, item: Value) -> Result<Value> {
+    pub async fn replace_singleton(&self, resource: &str, item: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
         if !matches!(g.data.get(resource), Some(Value::Object(_))) {
             return Err(Error::NotFound);
@@ -202,7 +216,7 @@ impl Database {
     }
 
     /// Merge-patch a singleton (PATCH).
-    pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value> {
+    pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
         let Some(&mut Value::Object(ref mut payload)) = g.data.get_mut(resource) else {
             return Err(Error::NotFound);
@@ -218,7 +232,7 @@ impl Database {
     }
 }
 
-fn parse_db(raw: &str, path: &Path) -> Result<Map<String, Value>> {
+fn parse_db(raw: &str, path: &Path) -> Result<Map<String, Value>, Error> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let value: Value = if ext == "json5" {
         json5::from_str(raw).map_err(|e| Error::BadRequest(e.to_string()))?
@@ -258,7 +272,7 @@ fn id_matches(item: &Value, id: &str) -> bool {
     }
 }
 
-fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>> {
+fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>, Error> {
     match g.data.get_mut(resource) {
         Some(&mut Value::Array(ref mut v)) => Ok(v),
         Some(_) => Err(Error::NotCollection(resource.to_owned())),
@@ -270,7 +284,7 @@ fn find_pos(arr: &[Value], id: &str) -> Option<usize> {
     arr.iter().position(|item| id_matches(item, id))
 }
 
-fn persist(g: &Inner) -> Result<()> {
+fn persist(g: &Inner) -> Result<(), Error> {
     if !g.readonly {
         let tmp = g.path.with_extension("json.tmp");
         let json = serde_json::to_string_pretty(&g.data)?;
@@ -284,45 +298,50 @@ fn persist(g: &Inner) -> Result<()> {
     Ok(())
 }
 
+use std::borrow::Cow;
 /// naive singularizer: strips trailing `s`.
 /// `posts` -> `post`, `comments` -> `comment`
-fn singular(s: &str) -> &str { s.strip_suffix("s").unwrap_or(s) }
+fn singular(s: &str) -> Cow<'_, str> {
+    if let Some(stem) = s.strip_suffix("ies") {
+        return Cow::Owned(format!("{stem}y"));
+    }
 
-// Add this example to the doc comment of `merge_json_rfc_7396` once the
-// function is public.
-// // # Example
-// // Create and patch document:
-// //
-// // ```rust
-// // use serde_json::json;
-// //
-// // use crate::db::merge_json_rfc_7396;
-// // # pub fn main() {
-// // let mut doc = json!({
-// //   "title": "Goodbye!",
-// //   "author" : { "givenName": "John", "familyName": "Doe" },
-// //   "tags":[ "example", "sample" ],
-// //   "content": "This will be unchanged"
-// // });
-// //
-// // let patch = json!({
-// //   "title": "Hello!",
-// //   "phoneNumber": "+01-123-456-7890",
-// //   "author": { "familyName": null },
-// //   "tags": [ "example" ]
-// // });
-// //
-// // merge_json_rfc_7396(&mut doc, &patch);
-// // assert_eq!(doc, json!({
-// //   "title": "Hello!",
-// //   "author" : { "givenName": "John" },
-// //   "tags": [ "example" ],
-// //   "content": "This will be unchanged",
-// //   "phoneNumber": "+01-123-456-7890"
-// // }));
-// // # }
+    Cow::Borrowed(s.strip_suffix("s").unwrap_or(s))
+}
+
 /// Patch provided JSON document (given as `serde_json::Value`) in place with
 /// JSON Merge Patch (RFC 7396).
+///
+/// # Example
+///
+/// ```rust
+/// use serde_json::json;
+///
+/// use jsond::db::merge_json_rfc_7396;
+///
+/// let mut doc = json!({
+///   "title": "Goodbye!",
+///   "author" : { "givenName": "John", "familyName": "Doe" },
+///   "tags":[ "example", "sample" ],
+///   "content": "This will be unchanged"
+/// });
+///
+/// let patch = json!({
+///   "title": "Hello!",
+///   "phoneNumber": "+01-123-456-7890",
+///   "author": { "familyName": null },
+///   "tags": [ "example" ]
+/// });
+///
+/// merge_json_rfc_7396(&mut doc, &patch);
+/// assert_eq!(doc, json!({
+///   "title": "Hello!",
+///   "author" : { "givenName": "John" },
+///   "tags": [ "example" ],
+///   "content": "This will be unchanged",
+///   "phoneNumber": "+01-123-456-7890"
+/// }));
+/// ```
 pub fn merge_json_rfc_7396(doc: &mut Value, patch: &Value) {
     let Some(patch_map) = patch.as_object() else {
         *doc = patch.clone();
