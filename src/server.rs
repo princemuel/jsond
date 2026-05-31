@@ -1,25 +1,19 @@
-//! Top-level server: binds to a port, starts Axum, optionally watches the
-//! database file for changes and reloads it live.
-
-use core::net::SocketAddr;
-
-use clap::Parser as _;
 use tokio::net::TcpListener;
 
-use crate::cli::CliArgs;
+use crate::cli::Args;
 use crate::db::Database;
 use crate::router::build_router;
-use crate::{telemetry, watcher};
+use crate::{Error, telemetry, watcher};
 
 #[derive(Clone, Copy)]
 pub struct Server;
 
 impl Server {
-    pub async fn run() -> anyhow::Result<()> {
+    pub async fn run() -> Result<(), Error> {
         telemetry::init();
-        let args = CliArgs::parse();
+        let args = Args::parse()?;
 
-        let db = Database::load(&args.db, args.id_strategy, args.readonly)?;
+        let db = Database::load(&args.db, args.ids, args.readonly)?;
         let resources = db.resources().await;
 
         tracing::info!(
@@ -35,14 +29,28 @@ impl Server {
 
         let router = build_router(&db, &args);
 
-        let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
-        let tcp = TcpListener::bind(&addr).await?;
+        let tcp = {
+            let mut port = args.port;
+            loop {
+                let addr = format!("{}:{}", args.host, port);
+                match TcpListener::bind(&addr).await {
+                    Ok(listener) => break listener,
+                    Err(_) if port != 0 => {
+                        tracing::warn!("port {port} in use, trying {next}", next = port + 1);
+                        port += 1;
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        };
+
+        let addr = tcp.local_addr()?;
 
         tracing::info!("");
         tracing::info!("  ┌──────────────────────────────────────────┐");
         tracing::info!("  │   jsond                         │");
-        tracing::info!("  │   http://{}:{:<25}│", args.host, args.port);
-        tracing::info!("  │   id strategy: {:<25}│", format!("{:?}", args.id_strategy));
+        tracing::info!("  │   http://{}:{:<25}│", addr.ip(), addr.port());
+        tracing::info!("  │   id strategy: {:<25}│", format!("{:?}", args.ids));
         tracing::info!("  ├──────────────────────────────────────────┤");
         for r in &resources {
             tracing::info!("  │   /{:<40}│", r);
@@ -58,7 +66,7 @@ impl Server {
     }
 }
 
-// fn print_banner(addr: &SocketAddr, args: &CliArgs, resources: &[String]) {
+// fn print_banner(addr: &SocketAddr, args: &Args, resources: &[String]) {
 //     println!();
 //     println!("\x1b[1;32m  JSOND Http Server started\x1b[0m");
 //     println!();
