@@ -34,6 +34,9 @@ pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("cli error: {0}")]
+    Cli(#[from] lexopt::Error),
+
     #[error("serialization error: {0}")]
     Json(#[from] serde_json::Error),
 

@@ -3,13 +3,13 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
-use crate::cli::CliArgs;
+use crate::cli::Args;
 use crate::db::Database;
 use crate::middleware::delay::DelayLayer;
 use crate::middleware::read_only::read_only_guard;
 use crate::routes;
 
-pub fn build_router(db: &Database, args: &CliArgs) -> Router {
+pub fn build_router(db: &Database, args: &Args) -> Router {
     let router = Router::new()
         .merge(routes::root::router())
         .merge(routes::singleton::router())

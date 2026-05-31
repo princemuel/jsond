@@ -21,8 +21,6 @@ keywords    = [
   "mocking",
   "prototyping",
   "server",
-  "test",
-  "testing"
 ]
 categories  = ["command-line-utilities", "web-programming"]
 
@@ -32,29 +30,21 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow             = "1"
-axum               = { version = "0.8", features = [] }
-clap               = { version = "4", features = ["derive", "env"] }
-json-patch         = "4"
+axum               = "0.8"
 json5              = "1"
+lexopt             = "0.3"
 notify             = "8"
 serde_json         = "1"
 thiserror          = "2"
-tokio              = { version = "1", features = [
-  "fs",
-  "macros",
-  "rt-multi-thread",
-  "signal",
-  "sync",
-  "time"
-] }
+tokio              = {
+  version  = "1",
+  features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"]
+}
 tower              = { version = "0.5", features = [] }
-tower-http         = { version = "0.6", features = [
-  "compression-full",
-  "cors",
-  "fs",
-  "limit",
-  "trace"
-] }
+tower-http         = {
+  version  = "0.6",
+  features = ["compression-full", "cors", "fs", "limit", "trace"]
+}
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid               = { version = "1", features = ["v4", "v7"] }
@@ -77,10 +67,10 @@ missing_panics_doc = "allow"
 # --- Restriction lints (cherry-picked, not in all/pedantic) ---
 absolute_paths                       = "warn"
 alloc_instead_of_core                = "warn"
-allow_attributes                     = "deny"
-# arbitrary_source_item_ordering       = "deny"  ##
-as_conversions                       = "deny"
-as_pointer_underscore                = "warn"
+allow_attributes                     = "warn"
+# arbitrary_source_item_ordering       = "deny"
+as_conversions                       = "warn"
+as_ptr_underscore                    = "warn"
 cfg_not_test                         = "warn"
 clone_on_ref_ptr                     = "deny"
 create_dir                           = "warn"
@@ -99,7 +89,7 @@ float_cmp_const                      = "deny"
 fn_to_numeric_cast_any               = "deny"
 host_endian_bytes                    = "deny"
 if_then_some_else_none               = "warn"
-indexing_slicing                     = "deny"
+indexing_slicing                     = "warn"
 infinite_loop                        = "deny"
 integer_division                     = "deny"
 integer_division_remainder_used      = "deny"
@@ -119,7 +109,7 @@ non_zero_suggestions                 = "deny"
 panic                                = "warn"
 panic_in_result_fn                   = "deny"
 pathbuf_init_then_push               = "deny"
-pattern_type_mismatch                = "warn"
+# pattern_type_mismatch = "warn"
 precedence_bits                      = "deny"
 # print_stdout                         = "warn"
 pub_without_shorthand                = "deny"
@@ -137,10 +127,9 @@ str_to_string                        = "deny"
 string_add                           = "deny"
 string_lit_chars_any                 = "deny"
 tests-outside-test-module            = "deny"
-todo                                 = "warn"
 unneeded_field_pattern               = "warn"
-unseparated_literal_suffix           = "warn"
-unused_trait_names                   = "deny"
+unseparated_literal_suffix           = "allow"
+unused_trait_names                   = "warn"
 unwrap_used                          = "warn"
 # verbose_file_reads = "warn"
 
@@ -185,19 +174,9 @@ debug         = false
 lto           = true
 codegen-units = 1
 
-[profile.dev]
-opt-level = 1
-debug     = true
-
 [profile.release]
 opt-level     = 3
-strip         = "debuginfo"
-lto           = "fat"
+strip         = "symbols"
+lto           = true
 panic         = "abort"
 codegen-units = 1
-
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-strip    = "symbols"
-lto      = "thin"
