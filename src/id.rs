@@ -3,7 +3,7 @@ use core::fmt;
 use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IdStrategy {
     Int,
     Uuidv4,
@@ -12,11 +12,10 @@ pub enum IdStrategy {
 
 impl IdStrategy {
     #[must_use]
-    pub fn generate(self, collection: &[Value]) -> String {
+    pub fn next_id(self, collection: &[Value]) -> Value {
         match self {
-            Self::Uuidv4 => Uuid::new_v4().to_string(),
-            Self::Uuidv7 => Uuid::now_v7().to_string(),
-            // scan existing items and return max+1 or fallback to "1"
+            Self::Uuidv4 => Value::String(Uuid::new_v4().to_string()),
+            Self::Uuidv7 => Value::String(Uuid::now_v7().to_string()),
             Self::Int => {
                 let max = collection
                     .iter()
@@ -27,7 +26,7 @@ impl IdStrategy {
                     })
                     .max()
                     .unwrap_or(0);
-                (max + 1).to_string()
+                Value::String((max + 1).to_string())
             }
         }
     }

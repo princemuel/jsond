@@ -100,10 +100,10 @@ impl Database {
             let collection =
                 g.data.get(resource).and_then(Value::as_array).map_or_else(|| EMPTY, Vec::as_slice);
 
-            let id = g.id_strategy.generate(collection);
+            let id = g.id_strategy.next_id(collection);
             item.as_object_mut()
                 .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
-                .insert("id".to_owned(), Value::String(id));
+                .insert("id".to_owned(), id);
         } else {
             normalize_id(&mut item);
         }
