@@ -479,7 +479,7 @@ Options:
   -w, --watch                      Watch the database file for changes and reload automatically
       --cors                       Enable/Disable CORS headers [default: false]
       --readonly                   Readonly mode: disable POST, PUT, PATCH, DELETE
-      --id-strategy <ID_STRATEGY>  [default: uuidv7] [possible values: int, uuidv4, uuidv7]
+      --ids <ID_STRATEGY>  [default: uuidv7] [possible values: int, v4, v7]
       --per-page <PER_PAGE>        Number of items per page [default: 10]
   -h, --help                       Print help
   -V, --version                    Print version
@@ -492,9 +492,9 @@ Options:
 jsond db.json
 jsond db.json5                                # JSON5 input supported
 jsond db.json --port 4000 --host 0.0.0.0      # Use custom port and host
-jsond db.json --id-strategy uuidv7            # Use uuidv4 for ids. default
-jsond db.json --id-strategy uuidv4            # Use uuidv4 for ids
-jsond db.json --id-strategy int               # Use incrementing integers for ids
+jsond db.json --ids v7                        # Use uuidv7 for ids. default
+jsond db.json --ids v4                        # Use uuidv4 for ids
+jsond db.json --ids int                       # Use incrementing integers for ids
 jsond db.json --watch                         # Watch for file changes
 jsond db.json --delay 500                     # Simulate 500ms network latency
 jsond db.json --readonly                      # Readonly API (no writes)
@@ -556,15 +556,15 @@ When creating resources via POST without an `id`, jsond auto-generates one:
 
 | Strategy | Format         | Features                             | Default |
 | -------- | -------------- | ------------------------------------ | ------- |
-| `uuidv7` | `018e3d8c-…`   | Time-sortable, k-sortable in indexes | ✅      |
-| `uuidv4` | `f47ac10b-…`   | Random, json-server v1 compatible    | ❌      |
+| `v7`     | `018e3d8c-…`   | Time-sortable, k-sortable in indexes | ✅      |
+| `v4`     | `f47ac10b-…`   | Random, json-server v1 compatible    | ❌      |
 | `int`    | `1, 2, 3, ...` | Incrementing integers, time-sortable | ❌      |
 
-Use `--id-strategy` to change:
+Use `--ids` to change:
 
 ```sh
-jsond db.json --id-strategy uuidv4
-jsond db.json --id-strategy int
+jsond db.json --ids v4
+jsond db.json --ids int
 ```
 
 ---
