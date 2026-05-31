@@ -21,13 +21,13 @@ mod handlers {
     use serde_json::Value;
 
     use crate::db::Database;
-    use crate::error::{Error, Result};
+    use crate::error::Error;
 
     pub(super) async fn put(
         Path(resource): Path<String>,
         State(db): State<Database>,
         Json(body): Json<Value>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         if !db.is_singleton(&resource).await {
             return Err(Error::NotFound);
         }
@@ -40,7 +40,7 @@ mod handlers {
         Path(resource): Path<String>,
         State(db): State<Database>,
         Json(body): Json<Value>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         if !db.is_singleton(&resource).await {
             return Err(Error::NotFound);
         }

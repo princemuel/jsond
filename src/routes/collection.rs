@@ -31,14 +31,14 @@ mod handlers {
 
     use super::helpers;
     use crate::db::Database;
-    use crate::error::{Error, Result};
+    use crate::error::Error;
     use crate::query::{self, Pagination};
 
     pub(super) async fn get_all(
         Path(resource): Path<String>,
         Query(params): Query<HashMap<String, String>>,
         State(db): State<Database>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         // Singletons bypass all query logic
         if db.is_singleton(&resource).await {
             let val = db.get_singleton(&resource).await.ok_or(Error::NotFound)?;
@@ -94,7 +94,7 @@ mod handlers {
         Path((resource, id)): Path<(String, String)>,
         Query(params): Query<HashMap<String, String>>,
         State(db): State<Database>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         let mut item = db.find(&resource, &id).await.ok_or(Error::NotFound)?;
 
         // Support _embed / _expand on single-item GETs
@@ -120,7 +120,7 @@ mod handlers {
         Path(resource): Path<String>,
         State(db): State<Database>,
         Json(body): Json<Value>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         let item = db.insert(&resource, body).await?;
         Ok((StatusCode::CREATED, Json(item)))
     }
@@ -129,7 +129,7 @@ mod handlers {
         Path((resource, id)): Path<(String, String)>,
         State(db): State<Database>,
         Json(body): Json<Value>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         let item = db.replace(&resource, &id, body).await?;
         Ok(Json(item))
     }
@@ -138,7 +138,7 @@ mod handlers {
         Path((resource, id)): Path<(String, String)>,
         State(db): State<Database>,
         Json(body): Json<Value>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         let item = db.patch(&resource, &id, body).await?;
         Ok(Json(item))
     }
@@ -148,7 +148,7 @@ mod handlers {
         Path((resource, id)): Path<(String, String)>,
         State(db): State<Database>,
         Query(params): Query<HashMap<String, String>>,
-    ) -> Result<impl IntoResponse> {
+    ) -> Result<impl IntoResponse, Error> {
         let dependent = params.get("_dependent").map(String::as_str);
         db.delete(&resource, &id, dependent).await?;
         Ok(StatusCode::NO_CONTENT)

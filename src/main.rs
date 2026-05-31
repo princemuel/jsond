@@ -1,4 +1,4 @@
-use jsond::Server;
+use jsond::{Error, Server};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> { Server::run().await }
+async fn main() -> Result<(), Error> { Server::run().await }

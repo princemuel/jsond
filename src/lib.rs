@@ -10,7 +10,7 @@ pub mod server;
 mod telemetry;
 pub mod watcher;
 
-pub use cli::CliArgs;
+pub use cli::Args;
 pub use db::Database;
-pub use error::{Error, Result};
+pub use error::Error;
 pub use server::Server;
