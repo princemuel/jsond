@@ -68,7 +68,8 @@ mod handlers {
         }
 
         let mut headers = HeaderMap::new();
-        headers.insert("X-Total-Count", total.to_string().parse().map_err(|_e| Error::InvalidHeader)?);
+        headers
+            .insert("X-Total-Count", total.to_string().parse().map_err(|_e| Error::InvalidHeader)?);
 
         let body = match res.pagination {
             Pagination::Page { page, per_page, total } => {
@@ -101,8 +102,10 @@ mod handlers {
         let embed_keys: Vec<_> =
             params.get("_embed").map(|s| s.split(',').map(str::trim).collect()).unwrap_or_default();
 
-        let expand_keys: Vec<_> =
-            params.get("_expand").map(|s| s.split(',').map(str::trim).collect()).unwrap_or_default();
+        let expand_keys: Vec<_> = params
+            .get("_expand")
+            .map(|s| s.split(',').map(str::trim).collect())
+            .unwrap_or_default();
 
         let mut items = vec![item];
         for embed in &embed_keys {

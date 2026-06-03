@@ -126,7 +126,7 @@ fn build_router(db: Database) -> Router {
 }
 
 #[must_use]
-pub fn fixture_db() -> Value {
+pub fn fixture() -> Value {
     json!({
         "posts": [
             { "id": "1", "title": "Hello World",            "author": "alice", "views": 10  },

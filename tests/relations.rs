@@ -2,13 +2,13 @@
 //! singleton resources, and edge cases around unknown relations.
 #![expect(clippy::tests_outside_test_module)]
 pub mod common;
-use common::{TestServer, fixture_db, ids};
+use common::{TestServer, fixture, ids};
 use serde_json::{Value, json};
 
 //  _embed hasMany
 #[tokio::test]
 async fn embed_attaches_children_array_to_each_item() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts", "_embed=comments").await;
     let arr = body.as_array().unwrap();
     for post in arr {
@@ -18,7 +18,7 @@ async fn embed_attaches_children_array_to_each_item() {
 
 #[tokio::test]
 async fn embed_matches_correct_children_by_foreign_key() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts", "_embed=comments").await;
     let arr = body.as_array().unwrap();
 
@@ -32,7 +32,7 @@ async fn embed_matches_correct_children_by_foreign_key() {
 
 #[tokio::test]
 async fn embed_excludes_unrelated_children() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts", "_embed=comments").await;
     let arr = body.as_array().unwrap();
 
@@ -44,7 +44,7 @@ async fn embed_excludes_unrelated_children() {
 
 #[tokio::test]
 async fn embed_returns_empty_array_when_no_children() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts", "_embed=comments").await;
     let arr = body.as_array().unwrap();
     // post 4 has no comments at all
@@ -54,7 +54,7 @@ async fn embed_returns_empty_array_when_no_children() {
 
 #[tokio::test]
 async fn embed_on_single_item_get() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts/2", "_embed=comments").await;
     let comments = body.get("comments").unwrap().as_array().unwrap();
     assert_eq!(comments.len(), 1);
@@ -63,7 +63,7 @@ async fn embed_on_single_item_get() {
 
 #[tokio::test]
 async fn embed_does_not_affect_unembedded_fields() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let with_embed = s.get_qs_json("/posts", "_embed=comments").await;
     let without = s.get_json("/posts").await;
     let arr_with = with_embed.as_array().unwrap();
@@ -79,7 +79,7 @@ async fn embed_does_not_affect_unembedded_fields() {
 
 #[tokio::test]
 async fn embed_combined_with_filter() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     // Only alice's posts, with their comments
     let body = s.get_qs_json("/posts", "author=alice&_embed=comments").await;
     let arr = body.as_array().unwrap();
@@ -92,7 +92,7 @@ async fn embed_combined_with_filter() {
 
 #[tokio::test]
 async fn embed_combined_with_pagination() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts", "_page=1&_per_page=2&_embed=comments").await;
     // Envelope shape
     let data = body.get("data").unwrap().as_array().unwrap();
@@ -104,7 +104,7 @@ async fn embed_combined_with_pagination() {
 
 #[tokio::test]
 async fn embed_unknown_child_resource_ignored() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     // "likes" doesn't exist — should not 404, just silently skip
     let res = s.get_qs("/posts", "_embed=likes").await;
     assert_eq!(res.status(), 200);
@@ -116,7 +116,7 @@ async fn embed_unknown_child_resource_ignored() {
 // _expand belongsTo
 #[tokio::test]
 async fn expand_attaches_parent_object() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/comments", "_expand=post").await;
     let arr = body.as_array().unwrap();
     for comment in arr {
@@ -126,7 +126,7 @@ async fn expand_attaches_parent_object() {
 
 #[tokio::test]
 async fn expand_matches_correct_parent_by_id() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/comments", "_expand=post").await;
     let arr = body.as_array().unwrap();
 
@@ -139,7 +139,7 @@ async fn expand_matches_correct_parent_by_id() {
 
 #[tokio::test]
 async fn expand_embeds_parent_fields() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/comments/3", "_expand=post").await;
     // Comment 3 has postId=2 → "Rust is Fast"
     assert_eq!(body.get("post").unwrap().get("id").unwrap(), "2");
@@ -148,7 +148,7 @@ async fn expand_embeds_parent_fields() {
 
 #[tokio::test]
 async fn expand_on_single_item_get() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/comments/1", "_expand=post").await;
     assert_eq!(body.get("post").unwrap().get("id").unwrap(), "1");
     assert!(body.get("post").unwrap().is_object());
@@ -156,7 +156,7 @@ async fn expand_on_single_item_get() {
 
 #[tokio::test]
 async fn expand_combined_with_filter() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     // Comments with rating >= 5, expanded with their parent post
     let body = s.get_qs_json("/comments", "rating:gte=5&_expand=post").await;
     let arr = body.as_array().unwrap();
@@ -171,7 +171,7 @@ async fn expand_combined_with_filter() {
 
 #[tokio::test]
 async fn embed_and_expand_can_be_used_independently() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     // Embed tags onto posts (posts → tags)
     let with_tags = s.get_qs_json("/posts", "_embed=tags").await;
     let arr = with_tags.as_array().unwrap();
@@ -191,7 +191,7 @@ async fn embed_and_expand_can_be_used_independently() {
 
 #[tokio::test]
 async fn singleton_get_returns_object() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_json("/profile").await;
     assert!(body.is_object());
     assert_eq!(body.get("name").unwrap(), "admin");
@@ -200,13 +200,13 @@ async fn singleton_get_returns_object() {
 
 #[tokio::test]
 async fn singleton_get_status_200() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     assert_eq!(s.get("/profile").await.status(), 200);
 }
 
 #[tokio::test]
 async fn singleton_put_replaces_entirely() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let res = s.put("/profile", json!({ "name": "root", "level": 99 })).await;
     assert_eq!(res.status(), 200);
 
@@ -219,14 +219,14 @@ async fn singleton_put_replaces_entirely() {
 
 #[tokio::test]
 async fn singleton_put_returns_updated_object() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.put_json("/profile", json!({ "name": "root" })).await;
     assert_eq!(body.get("name").unwrap(), "root");
 }
 
 #[tokio::test]
 async fn singleton_patch_merges_fields() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let res = s.patch("/profile", json!({ "department": "engineering" })).await;
     assert_eq!(res.status(), 200);
 
@@ -240,7 +240,7 @@ async fn singleton_patch_merges_fields() {
 
 #[tokio::test]
 async fn singleton_patch_overwrites_existing_field() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     s.patch("/profile", json!({ "name": "superadmin" })).await;
     let body = s.get_json("/profile").await;
     assert_eq!(body.get("name").unwrap(), "superadmin");
@@ -248,7 +248,7 @@ async fn singleton_patch_overwrites_existing_field() {
 
 #[tokio::test]
 async fn singleton_patch_returns_merged_object() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.patch_json("/profile", json!({ "x": 1 })).await;
     // Should contain both original fields and the new one
     assert_eq!(body.get("name").unwrap(), "admin");
@@ -257,7 +257,7 @@ async fn singleton_patch_returns_merged_object() {
 
 #[tokio::test]
 async fn singleton_put_on_collection_resource_is_404() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     // /posts is a collection — PUT /{resource} (singleton route) must 404
     let res = s.put("/posts", json!({ "x": 1 })).await;
     assert_eq!(res.status(), 404);
@@ -265,21 +265,21 @@ async fn singleton_put_on_collection_resource_is_404() {
 
 #[tokio::test]
 async fn singleton_patch_on_collection_resource_is_404() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let res = s.patch("/posts", json!({ "x": 1 })).await;
     assert_eq!(res.status(), 404);
 }
 
 #[tokio::test]
 async fn singleton_on_unknown_resource_is_404() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     assert_eq!(s.get("/settings").await.status(), 404);
 }
 
 //   Edge cases
 #[tokio::test]
 async fn collection_preserves_insertion_order_without_sort() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     let body = s.get_json("/posts").await;
     // Should come back in file order: 1, 2, 3, 4
     assert_eq!(ids(&body), vec!["1", "2", "3", "4"]);
@@ -287,7 +287,7 @@ async fn collection_preserves_insertion_order_without_sort() {
 
 #[tokio::test]
 async fn x_total_count_reflects_filtered_total_not_page() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
     // 2 alice posts, page size 1 — X-Total-Count should be 2 (filtered total)
     let res = s.get_qs("/posts", "author=alice&_page=1&_per_page=1").await;
     assert_eq!(res.headers()["x-total-count"], "2");
@@ -308,7 +308,7 @@ async fn multiple_sequential_writes_are_consistent() {
 
 #[tokio::test]
 async fn write_read_write_read_is_consistent() {
-    let s = TestServer::new(fixture_db()).await;
+    let s = TestServer::new(fixture()).await;
 
     // Create
     let created = s.post_json("/posts", json!({ "title": "Round-trip" })).await;

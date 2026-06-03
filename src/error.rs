@@ -3,8 +3,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
-pub type Result<T, E = Error> = core::result::Result<T, E>;
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("not found")]

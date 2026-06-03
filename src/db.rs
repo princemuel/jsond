@@ -24,21 +24,20 @@ pub struct Database(Arc<RwLock<Inner>>);
 pub struct Inner {
     pub data: Map<String, Value>,
     pub path: PathBuf,
-    pub id_strategy: IdStrategy,
+    pub ids: IdStrategy,
     pub readonly: bool,
 }
 
 impl Database {
     /// Load a database from a JSON or JSON5 file.
-    pub fn load(
-        path: impl AsRef<Path>,
-        id_strategy: IdStrategy,
-        readonly: bool,
-    ) -> Result<Self, Error> {
+    pub fn load<P>(path: P, ids: IdStrategy, readonly: bool) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
         let path = path.as_ref().to_path_buf();
         let content = fs::read_to_string(&path)?;
         let data = parse_db(&content, &path)?;
-        Ok(Self(Arc::new(RwLock::new(Inner { data, path, id_strategy, readonly }))))
+        Ok(Self(Arc::new(RwLock::new(Inner { data, path, ids, readonly }))))
     }
 
     /// Reload from disk (used by file watcher).
@@ -100,7 +99,7 @@ impl Database {
             let collection =
                 g.data.get(resource).and_then(Value::as_array).map_or_else(|| EMPTY, Vec::as_slice);
 
-            let id = g.id_strategy.next_id(collection);
+            let id = g.ids.next_id(collection);
             item.as_object_mut()
                 .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
                 .insert("id".to_owned(), id);
@@ -218,7 +217,7 @@ impl Database {
     /// Merge-patch a singleton (PATCH).
     pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
-        let Some(&mut Value::Object(ref mut payload)) = g.data.get_mut(resource) else {
+        let Some(Value::Object(payload)) = g.data.get_mut(resource) else {
             return Err(Error::NotFound);
         };
 
@@ -351,13 +350,14 @@ pub fn merge_json_rfc_7396(doc: &mut Value, patch: &Value) {
     if !doc.is_object() {
         *doc = Value::Object(Map::new());
     }
+
     let Some(map) = doc.as_object_mut() else { return };
 
     for (key, value) in patch_map {
         if value.is_null() {
-            map.remove(key.as_str());
+            map.remove(key);
         } else {
-            merge_json_rfc_7396(map.entry(key.as_str()).or_insert(Value::Null), value);
+            merge_json_rfc_7396(map.entry(key).or_insert(Value::Null), value);
         }
     }
 }

@@ -17,7 +17,10 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 /// Panics if a global subscriber has already been set.
 pub(crate) fn init() {
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "jsond=info,tower_http=info".into()))
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "jsond=info,tower_http=info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 }

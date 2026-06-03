@@ -1,5 +1,5 @@
 pub mod delay;
-pub mod read_only;
+pub mod readonly;
 
 pub use delay::delay_middleware;
-pub use read_only::read_only_guard;
+pub use readonly::readonly_guard;

@@ -121,63 +121,32 @@ impl Args {
 }
 
 fn print_help() {
-    println!("jsond - Fast mock JSON REST server");
-    println!();
-    println!("USAGE:");
-    println!("    jsond [OPTIONS] [DB_PATH]");
-    println!();
-    println!("ARGS:");
-    println!("    [DB_PATH]");
-    println!("            Path to the JSON or JSON5 database file");
-    println!();
-    println!("            Defaults to <cwd>/db.json");
-    println!();
-    println!("OPTIONS:");
-    println!("  -p, --port <PORT>");
-    println!("          Port to listen on (0 = random available port)");
-    println!();
-    println!("          [default: 3000]");
-    println!("          [env: PORT]");
-    println!();
-    println!("      --host <HOST>");
-    println!("          Host address to bind to");
-    println!();
-    println!("          [default: 127.0.0.1]");
-    println!("          [env: HOST]");
-    println!();
-    println!("  -s, --static <PATH>");
-    println!("          Serve static files from this directory");
-    println!();
-    println!("          [default: public]");
-    println!();
-    println!("      --delay <DELAY>");
-    println!("          Add artificial delay in milliseconds to all responses");
-    println!();
-    println!("          [default: 0]");
-    println!();
-    println!("  -w, --watch");
-    println!("          Watch the database file for changes and reload automatically");
-    println!();
-    println!("      --cors");
-    println!("          Enable or disable CORS headers");
-    println!();
-    println!("      --readonly");
-    println!("          Readonly mode: disable POST, PUT, PATCH, DELETE");
-    println!();
-    println!("      --ids <IDS>");
-    println!("          [default: v7]");
-    println!("          [possible values: int, v4, v7]");
-    println!();
-    println!("      --per-page <PER_PAGE>");
-    println!("          Number of items per page for pagination");
-    println!();
-    println!("          [default: 10]");
-    println!();
-    println!("  -h, --help");
-    println!("          Print help");
-    println!();
-    println!("  -V, --version");
-    println!("          Print version");
+    eprint!(
+        "\
+jsond - Fast mock JSON REST server
+
+Usage:
+  jsond [OPTIONS] [DB_PATH]
+
+Arguments:
+  [DB_PATH] Path to the JSON or JSON5 database file [default: <cwd>/db.json]
+
+Options:
+  -p, --port <PORT>                Port to listen on (0 = random) [env: PORT=] [default: 3000]
+      --host <HOST>                Host address to bind to [env: HOST=] [default: 127.0.0.1]
+  -s, --static <PATH>              Serve static files from this directory [default: public]
+      --delay <DELAY>              Add artificial delay in milliseconds to all responses [default: \
+         0]
+  -w, --watch                      Watch the database file for changes and reload automatically
+      --cors                       Enable/Disable CORS headers [default: false]
+      --readonly                   Readonly mode: disable POST, PUT, PATCH, DELETE
+      --ids <ID_STRATEGY>          The id strategy to use [default: uuidv7] [possible values: int, \
+         v4, v7]
+      --per-page <PER_PAGE>        Number of items per page [default: 10]
+  -h, --help                       Print help
+  -V, --version                    Print version
+"
+    );
 }
 
 impl Default for Args {

@@ -29,7 +29,7 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value};
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// Types ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
 pub struct QueryParams {
@@ -84,8 +84,7 @@ pub enum WhereExpr {
     Cond(Filter),
 }
 
-// ── Parse ─────────────────────────────────────────────────────────────────────
-
+// Parsing and application
 pub fn parse<S: BuildHasher>(raw: &HashMap<String, String, S>) -> QueryParams {
     let mut qp = QueryParams { per_page: 10, ..Default::default() };
 
@@ -133,8 +132,11 @@ fn parse_sort(s: &str) -> Vec<SortKey> {
 /// `author.name:gte=foo`  or  `views=100` (no operator = eq)
 fn parse_filter(key: &str, value: &str) -> Option<Filter> {
     // Split on `:` to separate path from operator
-    let (path, op) =
-        if let Some((path, op)) = key.split_once(':') { (path, parse_op(op)?) } else { (key, Op::Eq) };
+    let (path, op) = if let Some((path, op)) = key.split_once(':') {
+        (path, parse_op(op)?)
+    } else {
+        (key, Op::Eq)
+    };
 
     // Skip internal underscore params that sneak through
     if path.starts_with('_') {
@@ -174,12 +176,12 @@ fn json_to_expr(v: &Value) -> Option<WhereExpr> {
     let obj = v.as_object()?;
 
     if let Some(arr) = obj.get("or").and_then(Value::as_array) {
-        let children: Vec<_> = arr.iter().filter_map(json_to_expr).collect();
+        let children = arr.iter().filter_map(json_to_expr).collect();
         return Some(WhereExpr::Or(children));
     }
 
     if let Some(arr) = obj.get("and").and_then(Value::as_array) {
-        let children: Vec<_> = arr.iter().filter_map(json_to_expr).collect();
+        let children = arr.iter().filter_map(json_to_expr).collect();
         return Some(WhereExpr::And(children));
     }
 
@@ -284,7 +286,7 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
     }
 }
 
-// ── _where evaluation
+// _where evaluation
 fn eval_where(item: &Value, expr: &WhereExpr) -> bool {
     match *expr {
         WhereExpr::And(ref v) => v.iter().all(|exp| eval_where(item, exp)),
@@ -296,7 +298,6 @@ fn eval_where(item: &Value, expr: &WhereExpr) -> bool {
 }
 
 //   Filter matching
-
 fn matches_filter(item: &Value, f: &Filter) -> bool {
     matches_op(get_nested(item, &f.path), f.op, &f.value)
 }
@@ -375,7 +376,7 @@ fn full_text(v: &Value, q: &str) -> bool {
     }
 }
 
-// ── Nested field access
+// Nested field access
 
 /// Walk a dotted path through a JSON value: `["author", "name"]` →
 /// `item.author.name`
