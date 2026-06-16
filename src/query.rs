@@ -97,8 +97,12 @@ pub fn parse<S: BuildHasher>(raw: &HashMap<String, String, S>) -> QueryParams {
             "_end" => qp.end = v.parse().ok(),
             "_limit" => qp.limit = v.parse().ok(),
             "q" => qp.search = Some(v.to_owned()),
-            "_embed" => qp.embed.extend(v.split(',').map(str::trim).map(String::from)),
-            "_expand" => qp.expand.extend(v.split(',').map(str::trim).map(String::from)),
+            "_embed" => qp
+                .embed
+                .extend(v.split(',').map(str::trim).map(String::from)),
+            "_expand" => qp
+                .expand
+                .extend(v.split(',').map(str::trim).map(String::from)),
             "_where" => qp.r#where = parse_where(v),
             "_dependent" => {} // handled in the delete handler, not query
             key => {
@@ -213,7 +217,7 @@ fn collect_leaf_conds(obj: &Map<String, Value>, path: &mut Vec<String>, out: &mu
         (None, Value::Object(child)) => {
             path.push(k.to_owned());
             collect_leaf_conds(child, path, out);
-            path.pop();
+            let _removed = path.pop();
         }
         _ => {}
     });
@@ -275,7 +279,9 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
         QueryResult { items, pagination: Pagination::Page { page, per_page, total } }
     } else if qp.start.is_some() || qp.end.is_some() || qp.limit.is_some() {
         let start = qp.start.unwrap_or(0);
-        let end = qp.end.unwrap_or_else(|| qp.limit.map_or(total, |limit| start + limit));
+        let end = qp
+            .end
+            .unwrap_or_else(|| qp.limit.map_or(total, |limit| start + limit));
         let slice_len = end.saturating_sub(start).min(total.saturating_sub(start));
 
         items = items.into_iter().skip(start).take(slice_len).collect();
