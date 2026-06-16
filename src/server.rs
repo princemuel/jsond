@@ -57,7 +57,9 @@ impl Server {
         }
         tracing::info!("  └──────────────────────────────────────────┘");
 
-        axum::serve(tcp, router).with_graceful_shutdown(shutdown_signal()).await?;
+        axum::serve(tcp, router)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
 
         println!("\n\x1b[33m  Shutting down...\x1b[0m\n");
         tracing::info!("server stopped");
@@ -123,14 +125,16 @@ async fn shutdown_signal() {
     use tokio::{signal, time};
 
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]
     let terminate = async {
         use tokio::signal::unix;
 
-        unix::signal(unix::SignalKind::terminate())
+        let _received = unix::signal(unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()
             .await;
