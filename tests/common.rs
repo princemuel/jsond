@@ -43,7 +43,7 @@ impl TestServer {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
-        tokio::spawn(async move {
+        let _spawned = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
 
@@ -57,15 +57,30 @@ impl TestServer {
     }
 
     pub async fn post(&self, path: &str, body: Value) -> reqwest::Response {
-        self.client.post(self.url(path)).json(&body).send().await.unwrap()
+        self.client
+            .post(self.url(path))
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
     }
 
     pub async fn put(&self, path: &str, body: Value) -> reqwest::Response {
-        self.client.put(self.url(path)).json(&body).send().await.unwrap()
+        self.client
+            .put(self.url(path))
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
     }
 
     pub async fn patch(&self, path: &str, body: Value) -> reqwest::Response {
-        self.client.patch(self.url(path)).json(&body).send().await.unwrap()
+        self.client
+            .patch(self.url(path))
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
     }
 
     pub async fn delete(&self, path: &str) -> reqwest::Response {
@@ -74,12 +89,20 @@ impl TestServer {
 
     /// DELETE with arbitrary query string, e.g. `"_dependent=comments"`.
     pub async fn delete_qs(&self, path: &str, qs: &str) -> reqwest::Response {
-        self.client.delete(format!("{}{}?{}", self.base_url, path, qs)).send().await.unwrap()
+        self.client
+            .delete(format!("{}{}?{}", self.base_url, path, qs))
+            .send()
+            .await
+            .unwrap()
     }
 
     /// GET with arbitrary query string, e.g. `"author=alice&views:gt=50"`.
     pub async fn get_qs(&self, path: &str, qs: &str) -> reqwest::Response {
-        self.client.get(format!("{}{}?{}", self.base_url, path, qs)).send().await.unwrap()
+        self.client
+            .get(format!("{}{}?{}", self.base_url, path, qs))
+            .send()
+            .await
+            .unwrap()
     }
 
     // Helpers: deserialise to Value directly
@@ -170,13 +193,21 @@ pub fn cascade_db() -> Value {
 /// E.g. `ids(&db["posts"])` returns `vec!["1", "2", "3", "4"]`.
 #[must_use]
 pub fn ids(arr: &Value) -> Vec<&str> {
-    arr.as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap()).collect()
+    arr.as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["id"].as_str().unwrap())
+        .collect()
 }
 
 /// Extract a numeric field from every item in a JSON array.
 #[must_use]
 pub fn nums(arr: &Value, field: &str) -> Vec<i64> {
-    arr.as_array().unwrap().iter().map(|v| v[field].as_i64().unwrap()).collect()
+    arr.as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v[field].as_i64().unwrap())
+        .collect()
 }
 
 /// Assert a JSON array is sorted ascending by a numeric field.

@@ -1,9 +1,9 @@
 //! Handlers for collection resources (top-level arrays in the JSON db).
 //!
 //! Routes:
-//!   GET    /:resource          — list (with filter/sort/paginate/embed)
+//!   GET    /:resource            — list all (with filter/sort/paginate/embed)
+//!   POST   /:resource            — create one
 //!   GET    /{resource}/{id}      — get one
-//!   POST   /:resource          — create
 //!   PUT    /{resource}/{id}      — full replace
 //!   PATCH  /{resource}/{id}      — partial update
 //!   DELETE /{resource}/{id}      — delete
@@ -14,10 +14,15 @@ use axum::routing::get;
 use crate::db::Database;
 
 pub fn router() -> Router<Database> {
-    Router::new().route("/{resource}", get(handlers::get_all).post(handlers::post)).route(
-        "/{resource}/{id}",
-        get(handlers::get).put(handlers::put).patch(handlers::patch).delete(handlers::delete),
-    )
+    Router::new()
+        .route("/{resource}", get(handlers::get_all).post(handlers::post))
+        .route(
+            "/{resource}/{id}",
+            get(handlers::get)
+                .put(handlers::put)
+                .patch(handlers::patch)
+                .delete(handlers::delete),
+        )
 }
 
 mod handlers {
@@ -34,12 +39,13 @@ mod handlers {
     use crate::error::Error;
     use crate::query::{self, Pagination};
 
+    /// GET /{resource}
     pub(super) async fn get_all(
         Path(resource): Path<String>,
         Query(params): Query<HashMap<String, String>>,
         State(db): State<Database>,
     ) -> Result<impl IntoResponse, Error> {
-        // Singletons bypass all query logic
+        // Singletons!!! bypass all query logic
         if db.is_singleton(&resource).await {
             let val = db.get_singleton(&resource).await.ok_or(Error::NotFound)?;
             return Ok(Json(val).into_response());
@@ -68,8 +74,13 @@ mod handlers {
         }
 
         let mut headers = HeaderMap::new();
-        headers
-            .insert("X-Total-Count", total.to_string().parse().map_err(|_e| Error::InvalidHeader)?);
+        let _inserted_header = headers.insert(
+            "X-Total-Count",
+            total
+                .to_string()
+                .parse()
+                .map_err(|_e| Error::InvalidHeader)?,
+        );
 
         let body = match res.pagination {
             Pagination::Page { page, per_page, total } => {
@@ -91,6 +102,7 @@ mod handlers {
         Ok((StatusCode::OK, headers, Json(body)).into_response())
     }
 
+    /// GET /{resource}/id
     pub(super) async fn get(
         Path((resource, id)): Path<(String, String)>,
         Query(params): Query<HashMap<String, String>>,
@@ -99,8 +111,10 @@ mod handlers {
         let mut item = db.find(&resource, &id).await.ok_or(Error::NotFound)?;
 
         // Support _embed / _expand on single-item GETs
-        let embed_keys: Vec<_> =
-            params.get("_embed").map(|s| s.split(',').map(str::trim).collect()).unwrap_or_default();
+        let embed_keys: Vec<_> = params
+            .get("_embed")
+            .map(|s| s.split(',').map(str::trim).collect())
+            .unwrap_or_default();
 
         let expand_keys: Vec<_> = params
             .get("_expand")
@@ -128,6 +142,7 @@ mod handlers {
         Ok((StatusCode::CREATED, Json(item)))
     }
 
+    /// PUT /{resource}/id
     pub(super) async fn put(
         Path((resource, id)): Path<(String, String)>,
         State(db): State<Database>,
@@ -137,6 +152,7 @@ mod handlers {
         Ok(Json(item))
     }
 
+    /// PATCH /{resource}/id
     pub(super) async fn patch(
         Path((resource, id)): Path<(String, String)>,
         State(db): State<Database>,
@@ -153,7 +169,7 @@ mod handlers {
         Query(params): Query<HashMap<String, String>>,
     ) -> Result<impl IntoResponse, Error> {
         let dependent = params.get("_dependent").map(String::as_str);
-        db.delete(&resource, &id, dependent).await?;
+        let _deleted = db.delete(&resource, &id, dependent).await?;
         Ok(StatusCode::NO_CONTENT)
     }
 }
@@ -161,13 +177,13 @@ mod handlers {
 mod helpers {
     use serde_json::Value;
 
-    use crate::db::Database;
+    use crate::db::{Database, singular};
 
     /// `_embed=comments` -> hasMany.
     /// For each item, attaches `comments: [...]` where `comment.postId ==
     /// item.id`.
     ///
-    /// The foreign-key name is derived: `singular(parent_resource)` + "Id".
+    /// The foreign-key name is derived as: `singular(parent_resource)` + "Id".
     pub(super) async fn attach_has_many(
         db: &Database,
         resource: &str, // parent, e.g. "posts"
@@ -178,6 +194,7 @@ mod helpers {
             return;
         };
 
+        // FIXME: Improve on this later. This is pretty naive
         let fk = format!("{}Id", singular(resource)); // e.g. "postId"
 
         for item in items.iter_mut() {
@@ -204,7 +221,7 @@ mod helpers {
                 .cloned()
                 .collect();
 
-            obj.insert(embed.to_owned(), Value::Array(related));
+            let _inserted = obj.insert(embed.to_owned(), Value::Array(related));
         }
     }
 
@@ -246,6 +263,7 @@ mod helpers {
             let parent = parents
                 .iter()
                 .find(|parent| {
+                    // FIXME: resolve this later
                     #[expect(clippy::pattern_type_mismatch)]
                     parent.get("id").is_some_and(|v| match v {
                         Value::String(v) => v == &fk_str,
@@ -255,11 +273,7 @@ mod helpers {
                 .cloned()
                 .unwrap_or(Value::Null);
 
-            obj.insert(expand.to_owned(), parent);
+            let _inserted = obj.insert(expand.to_owned(), parent);
         }
     }
-
-    /// "posts" → "post", "comments" → "comment", "people" → "people" (no
-    /// trailing s)
-    fn singular(s: &str) -> &str { s.strip_suffix('s').unwrap_or(s) }
 }

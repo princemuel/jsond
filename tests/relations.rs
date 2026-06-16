@@ -81,7 +81,9 @@ async fn embed_does_not_affect_unembedded_fields() {
 async fn embed_combined_with_filter() {
     let s = TestServer::new(fixture()).await;
     // Only alice's posts, with their comments
-    let body = s.get_qs_json("/posts", "author=alice&_embed=comments").await;
+    let body = s
+        .get_qs_json("/posts", "author=alice&_embed=comments")
+        .await;
     let arr = body.as_array().unwrap();
     assert_eq!(arr.len(), 2);
     for post in arr {
@@ -93,7 +95,9 @@ async fn embed_combined_with_filter() {
 #[tokio::test]
 async fn embed_combined_with_pagination() {
     let s = TestServer::new(fixture()).await;
-    let body = s.get_qs_json("/posts", "_page=1&_per_page=2&_embed=comments").await;
+    let body = s
+        .get_qs_json("/posts", "_page=1&_per_page=2&_embed=comments")
+        .await;
     // Envelope shape
     let data = body.get("data").unwrap().as_array().unwrap();
     assert_eq!(data.len(), 2);
@@ -132,7 +136,13 @@ async fn expand_matches_correct_parent_by_id() {
 
     for comment in arr {
         let post_id = comment["postId"].as_str().unwrap();
-        let embedded_id = comment.get("post").unwrap().get("id").unwrap().as_str().unwrap();
+        let embedded_id = comment
+            .get("post")
+            .unwrap()
+            .get("id")
+            .unwrap()
+            .as_str()
+            .unwrap();
         assert_eq!(post_id, embedded_id, "embedded post id must match comment's postId");
     }
 }
@@ -158,7 +168,9 @@ async fn expand_on_single_item_get() {
 async fn expand_combined_with_filter() {
     let s = TestServer::new(fixture()).await;
     // Comments with rating >= 5, expanded with their parent post
-    let body = s.get_qs_json("/comments", "rating:gte=5&_expand=post").await;
+    let body = s
+        .get_qs_json("/comments", "rating:gte=5&_expand=post")
+        .await;
     let arr = body.as_array().unwrap();
     assert!(!arr.is_empty());
     for comment in arr {
@@ -207,7 +219,9 @@ async fn singleton_get_status_200() {
 #[tokio::test]
 async fn singleton_put_replaces_entirely() {
     let s = TestServer::new(fixture()).await;
-    let res = s.put("/profile", json!({ "name": "root", "level": 99 })).await;
+    let res = s
+        .put("/profile", json!({ "name": "root", "level": 99 }))
+        .await;
     assert_eq!(res.status(), 200);
 
     let body = s.get_json("/profile").await;
@@ -227,7 +241,9 @@ async fn singleton_put_returns_updated_object() {
 #[tokio::test]
 async fn singleton_patch_merges_fields() {
     let s = TestServer::new(fixture()).await;
-    let res = s.patch("/profile", json!({ "department": "engineering" })).await;
+    let res = s
+        .patch("/profile", json!({ "department": "engineering" }))
+        .await;
     assert_eq!(res.status(), 200);
 
     let body = s.get_json("/profile").await;
@@ -241,7 +257,7 @@ async fn singleton_patch_merges_fields() {
 #[tokio::test]
 async fn singleton_patch_overwrites_existing_field() {
     let s = TestServer::new(fixture()).await;
-    s.patch("/profile", json!({ "name": "superadmin" })).await;
+    let _res = s.patch("/profile", json!({ "name": "superadmin" })).await;
     let body = s.get_json("/profile").await;
     assert_eq!(body.get("name").unwrap(), "superadmin");
 }
@@ -299,7 +315,7 @@ async fn multiple_sequential_writes_are_consistent() {
 
     // POST 5 items
     for i in 0..5_u32 {
-        s.post("/items", json!({ "n": i })).await;
+        let _res = s.post("/items", json!({ "n": i })).await;
     }
 
     let all = s.get_json("/items").await;
@@ -311,11 +327,15 @@ async fn write_read_write_read_is_consistent() {
     let s = TestServer::new(fixture()).await;
 
     // Create
-    let created = s.post_json("/posts", json!({ "title": "Round-trip" })).await;
+    let created = s
+        .post_json("/posts", json!({ "title": "Round-trip" }))
+        .await;
     let id = created.get("id").unwrap().as_str().unwrap();
 
     // Patch
-    s.patch(&format!("/posts/{id}"), json!({ "views": 42 })).await;
+    let _res = s
+        .patch(&format!("/posts/{id}"), json!({ "views": 42 }))
+        .await;
 
     // Read back
     let fetched = s.get_json(&format!("/posts/{id}")).await;
@@ -323,6 +343,6 @@ async fn write_read_write_read_is_consistent() {
     assert_eq!(fetched.get("views").unwrap(), 42);
 
     // Delete
-    s.delete(&format!("/posts/{id}")).await;
+    let _res = s.delete(&format!("/posts/{id}")).await;
     assert_eq!(s.get(&format!("/posts/{id}")).await.status(), 404);
 }

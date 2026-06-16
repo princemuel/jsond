@@ -47,7 +47,6 @@ impl Server {
         };
 
         let addr = tcp.local_addr()?;
-
         info!("");
         info!("  ┌──────────────────────────────────────────┐");
         info!("  │   jsond                         │");
@@ -136,7 +135,7 @@ async fn shutdown_signal() {
     let terminate = async {
         use tokio::signal::unix;
 
-        unix::signal(unix::SignalKind::terminate())
+        let _received = unix::signal(unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()
             .await;

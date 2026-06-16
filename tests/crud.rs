@@ -98,7 +98,9 @@ async fn post_returns_201() {
 #[tokio::test]
 async fn post_returns_created_item() {
     let s = TestServer::new(fixture()).await;
-    let body = s.post_json("/posts", json!({ "title": "New", "author": "dave" })).await;
+    let body = s
+        .post_json("/posts", json!({ "title": "New", "author": "dave" }))
+        .await;
     assert_eq!(body.get("title").unwrap(), "New");
     assert_eq!(body.get("author").unwrap(), "dave");
 }
@@ -125,14 +127,18 @@ async fn post_id_is_always_a_string() {
 #[tokio::test]
 async fn post_with_explicit_string_id_keeps_it() {
     let s = TestServer::new(fixture()).await;
-    let body = s.post_json("/posts", json!({ "id": "custom-99", "title": "t" })).await;
+    let body = s
+        .post_json("/posts", json!({ "id": "custom-99", "title": "t" }))
+        .await;
     assert_eq!(body.get("id").unwrap(), "custom-99");
 }
 
 #[tokio::test]
 async fn post_with_numeric_id_coerces_to_string() {
     let s = TestServer::new(fixture()).await;
-    let body = s.post_json("/posts", json!({ "id": 42, "title": "t" })).await;
+    let body = s
+        .post_json("/posts", json!({ "id": 42, "title": "t" }))
+        .await;
     // Spec: ids are always strings
     assert_eq!(body.get("id").unwrap(), &json!("42"));
 }
@@ -140,7 +146,9 @@ async fn post_with_numeric_id_coerces_to_string() {
 #[tokio::test]
 async fn posted_item_is_retrievable() {
     let s = TestServer::new(fixture()).await;
-    let created = s.post_json("/posts", json!({ "title": "Persisted?" })).await;
+    let created = s
+        .post_json("/posts", json!({ "title": "Persisted?" }))
+        .await;
     let id = created.get("id").unwrap().as_str().unwrap();
     let fetched = s.get_json(&format!("/posts/{id}")).await;
     assert_eq!(fetched.get("title").unwrap(), "Persisted?");
@@ -158,7 +166,7 @@ async fn post_to_new_resource_auto_creates_collection() {
 #[tokio::test]
 async fn post_to_new_resource_lists_in_root() {
     let s = TestServer::new(fixture()).await;
-    s.post("/widgets", json!({ "color": "red" })).await;
+    let _res = s.post("/widgets", json!({ "color": "red" })).await;
     let root = s.get_json("/").await;
     let resources: Vec<&str> = root
         .get("resources")
@@ -175,13 +183,20 @@ async fn post_to_new_resource_lists_in_root() {
 #[tokio::test]
 async fn put_returns_200() {
     let s = TestServer::new(fixture()).await;
-    assert_eq!(s.put("/posts/1", json!({ "title": "Replaced" })).await.status(), 200);
+    assert_eq!(
+        s.put("/posts/1", json!({ "title": "Replaced" }))
+            .await
+            .status(),
+        200
+    );
 }
 
 #[tokio::test]
 async fn put_replaces_all_fields() {
     let s = TestServer::new(fixture()).await;
-    let body = s.put_json("/posts/1", json!({ "title": "Only Title" })).await;
+    let body = s
+        .put_json("/posts/1", json!({ "title": "Only Title" }))
+        .await;
     assert_eq!(body.get("title").unwrap(), "Only Title");
     // author and views must be gone — it's a full replace
     assert!(body.get("author").is_none(), "author should be absent after full replace");
@@ -192,14 +207,16 @@ async fn put_replaces_all_fields() {
 async fn put_url_id_wins_over_body_id() {
     let s = TestServer::new(fixture()).await;
     // Even if the body sends a different id, the URL id must be used
-    let body = s.put_json("/posts/2", json!({ "id": "999", "title": "t" })).await;
+    let body = s
+        .put_json("/posts/2", json!({ "id": "999", "title": "t" }))
+        .await;
     assert_eq!(body.get("id").unwrap(), "2");
 }
 
 #[tokio::test]
 async fn put_change_is_persisted() {
     let s = TestServer::new(fixture()).await;
-    s.put("/posts/3", json!({ "title": "Updated" })).await;
+    let _res = s.put("/posts/3", json!({ "title": "Updated" })).await;
     let fetched = s.get_json("/posts/3").await;
     assert_eq!(fetched.get("title").unwrap(), "Updated");
 }
@@ -207,7 +224,12 @@ async fn put_change_is_persisted() {
 #[tokio::test]
 async fn put_missing_item_is_404() {
     let s = TestServer::new(fixture()).await;
-    assert_eq!(s.put("/posts/9999", json!({ "title": "Ghost" })).await.status(), 404);
+    assert_eq!(
+        s.put("/posts/9999", json!({ "title": "Ghost" }))
+            .await
+            .status(),
+        404
+    );
 }
 
 // PATCH partial update
@@ -245,7 +267,7 @@ async fn patch_cannot_change_id() {
 #[tokio::test]
 async fn patch_change_is_persisted() {
     let s = TestServer::new(fixture()).await;
-    s.patch("/posts/4", json!({ "pinned": true })).await;
+    let _res = s.patch("/posts/4", json!({ "pinned": true })).await;
     let fetched = s.get_json("/posts/4").await;
     assert_eq!(fetched.get("pinned").unwrap(), true);
 }
@@ -267,14 +289,14 @@ async fn delete_returns_no_content() {
 #[tokio::test]
 async fn deleted_item_is_gone() {
     let s = TestServer::new(fixture()).await;
-    s.delete("/posts/2").await;
+    let _res = s.delete("/posts/2").await;
     assert_eq!(s.get("/posts/2").await.status(), 404);
 }
 
 #[tokio::test]
 async fn delete_reduces_collection_count() {
     let s = TestServer::new(fixture()).await;
-    s.delete("/posts/1").await;
+    let _res = s.delete("/posts/1").await;
     let all = s.get_json("/posts").await;
     assert_eq!(all.as_array().unwrap().len(), 3);
 }
@@ -288,7 +310,7 @@ async fn delete_missing_item_is_404() {
 #[tokio::test]
 async fn delete_other_items_unaffected() {
     let s = TestServer::new(fixture()).await;
-    s.delete("/posts/1").await;
+    let _res = s.delete("/posts/1").await;
     // items 2 3 4 must still exist
     for id in ["2", "3", "4"] {
         assert_eq!(s.get(&format!("/posts/{id}")).await.status(), 200, "post {id} should survive");
@@ -300,7 +322,7 @@ async fn delete_other_items_unaffected() {
 async fn cascade_delete_removes_dependent_items() {
     let s = TestServer::new(cascade_db()).await;
     // post 1 has comments 1 and 2
-    s.delete_qs("/posts/1", "_dependent=comments").await;
+    let _res = s.delete_qs("/posts/1", "_dependent=comments").await;
 
     let remaining = s.get_json("/comments").await;
     let comment_ids = ids(&remaining);
@@ -311,7 +333,7 @@ async fn cascade_delete_removes_dependent_items() {
 #[tokio::test]
 async fn cascade_delete_keeps_unrelated_dependents() {
     let s = TestServer::new(cascade_db()).await;
-    s.delete_qs("/posts/1", "_dependent=comments").await;
+    let _res = s.delete_qs("/posts/1", "_dependent=comments").await;
 
     let remaining = s.get_json("/comments").await;
     let comment_ids = ids(&remaining);
@@ -322,7 +344,7 @@ async fn cascade_delete_keeps_unrelated_dependents() {
 #[tokio::test]
 async fn cascade_delete_removes_parent() {
     let s = TestServer::new(cascade_db()).await;
-    s.delete_qs("/posts/1", "_dependent=comments").await;
+    let _res = s.delete_qs("/posts/1", "_dependent=comments").await;
     assert_eq!(s.get("/posts/1").await.status(), 404, "parent post must be deleted");
 }
 
@@ -330,7 +352,7 @@ async fn cascade_delete_removes_parent() {
 async fn delete_without_dependent_leaves_children() {
     let s = TestServer::new(cascade_db()).await;
     // Plain delete. no cascade
-    s.delete("/posts/1").await;
+    let _res = s.delete("/posts/1").await;
     let comments = s.get_json("/comments").await;
     // All 3 comments still present (orphaned, but that's the caller's choice)
     assert_eq!(comments.as_array().unwrap().len(), 3);
@@ -379,7 +401,9 @@ async fn int_ids_are_always_strings() {
 #[tokio::test]
 async fn int_id_explicit_in_post_body_is_respected() {
     let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Int).await;
-    let body = s.post_json("/items", json!({ "id": "99", "name": "x" })).await;
+    let body = s
+        .post_json("/items", json!({ "id": "99", "name": "x" }))
+        .await;
     assert_eq!(body.get("id").unwrap(), "99");
     // next auto-id must continue from 99
     let next = s.post_json("/items", json!({ "name": "y" })).await;

@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tracing::{debug, info};
 
 use crate::error::Error;
 use crate::id::IdStrategy;
@@ -46,7 +47,7 @@ impl Database {
         let content = fs::read_to_string(&g.path)?;
 
         g.data = parse_db(&content, &g.path)?;
-        tracing::info!("Reloaded database from {}", g.path.display());
+        info!("Reloaded database from {}", g.path.display());
         Ok(())
     }
 
@@ -77,17 +78,32 @@ impl Database {
 
     /// Get a collection (array).
     pub async fn get_collection(&self, resource: &str) -> Option<Vec<Value>> {
-        self.0.read().await.data.get(resource).and_then(|v| v.as_array()).cloned()
+        self.0
+            .read()
+            .await
+            .data
+            .get(resource)
+            .and_then(|v| v.as_array())
+            .cloned()
     }
 
     /// Get a singleton (object).
     pub async fn get_singleton(&self, resource: &str) -> Option<Value> {
-        self.0.read().await.data.get(resource).filter(|v| v.is_object()).cloned()
+        self.0
+            .read()
+            .await
+            .data
+            .get(resource)
+            .filter(|v| v.is_object())
+            .cloned()
     }
 
     /// Find a single item by its `id` field.
     pub async fn find(&self, resource: &str, id: &str) -> Option<Value> {
-        self.get_collection(resource).await?.into_iter().find(|item| id_matches(item, id))
+        self.get_collection(resource)
+            .await?
+            .into_iter()
+            .find(|item| id_matches(item, id))
     }
 
     /// Insert a new item, assigning a string id if one is not present.
@@ -96,11 +112,15 @@ impl Database {
 
         if item.get("id").is_none() {
             const EMPTY: &[Value] = &[];
-            let collection =
-                g.data.get(resource).and_then(Value::as_array).map_or_else(|| EMPTY, Vec::as_slice);
+            let collection = g
+                .data
+                .get(resource)
+                .and_then(Value::as_array)
+                .map_or_else(|| EMPTY, Vec::as_slice);
 
             let id = g.ids.next_id(collection);
-            item.as_object_mut()
+            let _inserted = item
+                .as_object_mut()
                 .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
                 .insert("id".to_owned(), id);
         } else {
@@ -111,7 +131,9 @@ impl Database {
             Some(&mut Value::Array(ref mut v)) => v.push(item.clone()),
             Some(_) => return Err(Error::NotCollection(resource.to_owned())),
             None => {
-                g.data.insert(resource.to_owned(), Value::Array(vec![item.clone()]));
+                let _inserted = g
+                    .data
+                    .insert(resource.to_owned(), Value::Array(vec![item.clone()]));
             }
         }
 
@@ -121,7 +143,8 @@ impl Database {
 
     /// Full replace (PUT). Uses the id from the url in the body.
     pub async fn replace(&self, resource: &str, id: &str, mut item: Value) -> Result<Value, Error> {
-        item.as_object_mut()
+        let _inserted = item
+            .as_object_mut()
             .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
             .insert("id".to_owned(), Value::String(id.to_owned()));
 
@@ -150,7 +173,8 @@ impl Database {
         let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
 
         // Verify the element is an object before mutating
-        arr.get(pos)
+        let _element = arr
+            .get(pos)
             .and_then(|v| v.as_object())
             .ok_or_else(|| Error::NotCollection(resource.to_owned()))?;
 
@@ -158,7 +182,10 @@ impl Database {
 
         // Build merge patch without the `id` field
         let mut patch_value = Value::Object(payload.clone());
-        patch_value.as_object_mut().ok_or(Error::NotFound)?.remove("id");
+        let _element = patch_value
+            .as_object_mut()
+            .ok_or(Error::NotFound)?
+            .remove("id");
 
         // RFC 7396 JSON Merge Patch: nulls delete keys, objects recurse, scalars
         // replace
@@ -208,7 +235,7 @@ impl Database {
         if !matches!(g.data.get(resource), Some(Value::Object(_))) {
             return Err(Error::NotFound);
         }
-        g.data.insert(resource.to_owned(), item.clone());
+        let _inserted = g.data.insert(resource.to_owned(), item.clone());
 
         persist(&g)?;
         Ok(item)
@@ -217,14 +244,13 @@ impl Database {
     /// Merge-patch a singleton (PATCH).
     pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
-        let Some(Value::Object(payload)) = g.data.get_mut(resource) else {
+        let Some(&mut Value::Object(ref mut payload)) = g.data.get_mut(resource) else {
             return Err(Error::NotFound);
         };
 
         if let Value::Object(p) = patch {
             payload.extend(p);
         }
-
         let item = Value::Object(payload.clone());
         persist(&g)?;
         Ok(item)
@@ -256,7 +282,7 @@ pub fn normalize_id(item: &mut Value) {
             v => v.to_string(),
         };
 
-        obj.insert("id".to_owned(), Value::String(s));
+        let _inserted = obj.insert("id".to_owned(), Value::String(s));
     }
 }
 
@@ -291,16 +317,20 @@ fn persist(g: &Inner) -> Result<(), Error> {
         fs::write(&tmp, json)?;
         fs::rename(&tmp, &g.path)?;
 
-        tracing::debug!("Persisted database to {}", g.path.display());
+        debug!("Persisted database to {}", g.path.display());
     }
 
     Ok(())
 }
 
 use std::borrow::Cow;
-/// naive singularizer: strips trailing `s`.
-/// `posts` -> `post`, `comments` -> `comment`
-fn singular(s: &str) -> Cow<'_, str> {
+/// Singularize a resource's name
+///
+/// `posts` → `post`, `comments` → `comment`, `babies` → `baby`, `people` →
+/// `people` (no trailing s)
+#[must_use]
+pub fn singular(s: &str) -> Cow<'_, str> {
+    // FIXME: Improve on this later. This is okay for now but pretty naive
     if let Some(stem) = s.strip_suffix("ies") {
         return Cow::Owned(format!("{stem}y"));
     }
@@ -355,7 +385,7 @@ pub fn merge_json_rfc_7396(doc: &mut Value, patch: &Value) {
 
     for (key, value) in patch_map {
         if value.is_null() {
-            map.remove(key);
+            let _removed = map.remove(key);
         } else {
             merge_json_rfc_7396(map.entry(key).or_insert(Value::Null), value);
         }
