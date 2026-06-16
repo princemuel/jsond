@@ -1,4 +1,5 @@
 use tokio::net::TcpListener;
+use tracing::{info, warn};
 
 use crate::cli::Args;
 use crate::db::Database;
@@ -16,7 +17,7 @@ impl Server {
         let db = Database::load(&args.db, args.ids, args.readonly)?;
         let resources = db.resources().await;
 
-        tracing::info!(
+        info!(
             database = %args.db.display(),
             resources = resources.len(),
             "database loaded"
@@ -24,19 +25,20 @@ impl Server {
 
         if args.watch {
             watcher::spawn(&args.db.canonicalize()?, &db);
-            tracing::info!("watching {} for changes", args.db.display());
+            info!("watching {} for changes", args.db.display());
         }
 
         let router = build_router(&db, &args);
 
         let tcp = {
             let mut port = args.port;
+            // FIXME: can i have two servers on the same database?? BUG??
             loop {
                 let addr = format!("{}:{}", args.host, port);
                 match TcpListener::bind(&addr).await {
                     Ok(listener) => break listener,
                     Err(_) if port != 0 => {
-                        tracing::warn!("port {port} in use, trying {next}", next = port + 1);
+                        warn!("port address `{port}` in use, trying `{next}`", next = port + 1);
                         port += 1;
                     }
                     Err(e) => return Err(e.into()),
@@ -46,23 +48,23 @@ impl Server {
 
         let addr = tcp.local_addr()?;
 
-        tracing::info!("");
-        tracing::info!("  ┌──────────────────────────────────────────┐");
-        tracing::info!("  │   jsond                         │");
-        tracing::info!("  │   http://{}:{:<25}│", addr.ip(), addr.port());
-        tracing::info!("  │   id strategy: {:<25}│", format!("{:?}", args.ids));
-        tracing::info!("  ├──────────────────────────────────────────┤");
+        info!("");
+        info!("  ┌──────────────────────────────────────────┐");
+        info!("  │   jsond                         │");
+        info!("  │   http://{:<28}│", addr);
+        info!("  │   id strategy: {:<25}│", format!("{:?}", args.ids));
+        info!("  ├──────────────────────────────────────────┤");
         for r in &resources {
-            tracing::info!("  │   /{:<40}│", r);
+            info!("  │   /{:<40}│", r);
         }
-        tracing::info!("  └──────────────────────────────────────────┘");
+        info!("  └──────────────────────────────────────────┘");
 
         axum::serve(tcp, router)
             .with_graceful_shutdown(shutdown_signal())
             .await?;
 
         println!("\n\x1b[33m  Shutting down...\x1b[0m\n");
-        tracing::info!("server stopped");
+        info!("server stopped");
 
         Ok(())
     }
@@ -134,7 +136,7 @@ async fn shutdown_signal() {
     let terminate = async {
         use tokio::signal::unix;
 
-        let _received = unix::signal(unix::SignalKind::terminate())
+        unix::signal(unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler")
             .recv()
             .await;
@@ -147,7 +149,7 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
 
-    tracing::info!("Shutdown signal received, starting graceful shutdown...");
+    info!("Shutdown signal received, starting graceful shutdown...");
 
     // Allow time for load balancer to detect
     time::sleep(time::Duration::from_secs(5)).await;
