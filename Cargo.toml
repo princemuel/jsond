@@ -9,19 +9,7 @@ readme      = "README.md"
 homepage    = "https://github.com/princemuel/jsond"
 repository  = "https://github.com/princemuel/jsond"
 license     = "MIT OR Apache-2.0"
-keywords    = [
-  "JSON",
-  "REST",
-  "api",
-  "data",
-  "dummy",
-  "fake",
-  "json",
-  "mock",
-  "mocking",
-  "prototyping",
-  "server",
-]
+keywords    = ["json-server", "mock-api", "prototyping", "rest", "testing"]
 categories  = ["command-line-utilities", "web-programming"]
 
 [[bin]]
@@ -106,7 +94,6 @@ non_zero_suggestions                 = "warn"
 panic                                = "warn"
 panic_in_result_fn                   = "deny"
 pathbuf_init_then_push               = "warn"
-pattern_type_mismatch                = "warn"
 precedence_bits                      = "warn"
 pub_without_shorthand                = "warn"
 rc_buffer                            = "warn"
@@ -162,7 +149,7 @@ unsafe-code                   = "warn"
 unused-import-braces          = "deny"
 unused-lifetimes              = "warn"
 unused-qualifications         = "deny"
-unused-results                = "warn"
+unused-results                = "allow"
 
 [profile.bench]
 opt-level     = 3
