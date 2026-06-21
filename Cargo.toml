@@ -6,7 +6,6 @@ version     = "0.1.0"
 edition     = "2024"
 description = "Fast mock JSON REST server"
 readme      = "README.md"
-homepage    = "https://github.com/princemuel/jsond"
 repository  = "https://github.com/princemuel/jsond"
 license     = "MIT OR Apache-2.0"
 keywords    = ["json-server", "mock-api", "prototyping", "rest", "testing"]
