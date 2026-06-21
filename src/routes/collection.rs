@@ -45,7 +45,6 @@ mod handlers {
         Query(params): Query<HashMap<String, String>>,
         State(db): State<Database>,
     ) -> Result<impl IntoResponse, Error> {
-        // Singletons!!! bypass all query logic
         if db.is_singleton(&resource).await {
             let val = db.get_singleton(&resource).await.ok_or(Error::NotFound)?;
             return Ok(Json(val).into_response());
@@ -53,18 +52,10 @@ mod handlers {
 
         let raw_items = db.get_collection(&resource).await.ok_or(Error::NotFound)?;
 
-        // Parse query params (embed/expand keys are inside qp too)
         let qp = query::parse(&params);
         let res = query::apply(raw_items, &qp);
+        let total = res.total;
 
-        // Total is from BEFORE pagination but AFTER filter/search
-        let total = match res.pagination {
-            Pagination::Page { total, .. } | Pagination::Slice { total, .. } => total,
-            Pagination::None => res.items.len(),
-        };
-
-        // Attach _embed (hasMany) and _expand (belongsTo) AFTER paging —
-        // we embed only the visible page, not the whole collection.
         let mut items = res.items;
         for embed in &qp.embed {
             helpers::attach_has_many(&db, &resource, embed, &mut items).await;
@@ -74,7 +65,7 @@ mod handlers {
         }
 
         let mut headers = HeaderMap::new();
-        let _inserted_header = headers.insert(
+        headers.insert(
             "X-Total-Count",
             total
                 .to_string()
@@ -83,7 +74,7 @@ mod handlers {
         );
 
         let body = match res.pagination {
-            Pagination::Page { page, per_page, total } => {
+            Pagination::Page { page, per_page } => {
                 let pages = total.div_ceil(per_page).max(1);
                 json!({
                     "first": 1,
@@ -91,11 +82,10 @@ mod handlers {
                     "next":  (page < pages).then(|| page + 1),
                     "last":  pages,
                     "pages": pages,
-                    "items": total,   // spec: "items" = total count
-                    "data":  items,   // spec: "data"  = page records
+                    "items": total,
+                    "data":  items,
                 })
             }
-            // Slice or no pagination => plain array
             _ => json!(items),
         };
 

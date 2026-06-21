@@ -200,41 +200,52 @@ fn json_to_expr(v: &Value) -> Option<WhereExpr> {
 }
 
 #[expect(clippy::doc_link_with_quotes)]
-#[expect(clippy::pattern_type_mismatch)]
 /// Recurse `{"a": {"b": {"gt": "m"}}}` into path=["a","b"], op=Gt, value="m"
 fn collect_leaf_conds(obj: &Map<String, Value>, path: &mut Vec<String>, out: &mut Vec<WhereExpr>) {
-    obj.iter().for_each(|(k, v)| match (parse_op(k), v) {
-        (Some(op), value) => out.push(WhereExpr::Cond(Filter {
-            path: path.clone(),
-            op,
-            value: match value {
-                Value::String(s) => s.to_owned(),
-                v => v.to_string(),
-            },
-        })),
-        (None, Value::Object(child)) => {
-            path.push(k.to_owned());
-            collect_leaf_conds(child, path, out);
-            let _removed = path.pop();
+    for (k, v) in obj {
+        match (parse_op(k), v) {
+            (Some(op), value) => out.push(WhereExpr::Cond(Filter {
+                path: path.clone(),
+                op,
+                value: match value {
+                    Value::String(s) => s.to_owned(),
+                    v => v.to_string(),
+                },
+            })),
+            (None, Value::Object(child)) => {
+                path.push(k.to_owned());
+                collect_leaf_conds(child, path, out);
+                path.pop();
+            }
+            _ => {}
         }
-        _ => {}
-    });
+    }
 }
-#[derive(Clone, Copy)]
+
+#[derive(Clone, Copy, Default)]
 pub enum Pagination {
+    #[default]
     None,
-    Page { page: usize, per_page: usize, total: usize },
-    Slice { start: usize, total: usize },
+    Page {
+        page: usize,
+        per_page: usize,
+    },
+    Slice {
+        start: Option<usize>,
+        end: Option<usize>,
+        limit: Option<usize>,
+    },
 }
 
 pub struct QueryResult {
     pub items: Vec<Value>,
     pub pagination: Pagination,
+    pub total: usize,
 }
 
 #[must_use]
 pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
-    // 1. Filtering — _where overrides individual field params if present
+    // 1. Filtering. _where overrides individual field params if present
     if let Some(expr) = qp.r#where.as_ref() {
         items.retain(|item| eval_where(item, expr));
     } else {
@@ -251,43 +262,45 @@ pub fn apply(mut items: Vec<Value>, qp: &QueryParams) -> QueryResult {
 
     let total = items.len();
 
-    // 3. Sort — stable, multi-key, dot-path aware
+    // 3. Sort. stable, multi-key, dot-path aware
     if !qp.sort.is_empty() {
         items.sort_by(|a, b| {
             for sk in &qp.sort {
                 let av = sortable(get_nested(a, &sk.path));
                 let bv = sortable(get_nested(b, &sk.path));
-                let ord = av.partial_cmp(&bv).unwrap_or(Ordering::Equal);
+                let ord = if sk.desc { bv.partial_cmp(&av) } else { av.partial_cmp(&bv) }
+                    .expect("Sk::partial_cmp is total, always returns Some");
                 if ord != Ordering::Equal {
-                    return if sk.desc { ord.reverse() } else { ord };
+                    return ord;
                 }
             }
+
             Ordering::Equal
         });
     }
 
-    // 4. Pagination — page-based xor slice-based
-    if qp.page.is_some() {
-        let page = qp.page.unwrap_or(1).max(1);
+    // 4. Pagination. page-based xor slice-based
+    let (items, pagination) = if let Some(page) = qp.page {
+        let page = page.max(1);
         let per_page = qp.per_page;
         let start = (page - 1) * per_page;
 
-        items = items.into_iter().skip(start).take(per_page).collect();
-
-        QueryResult { items, pagination: Pagination::Page { page, per_page, total } }
+        let items = items.into_iter().skip(start).take(per_page).collect();
+        (items, Pagination::Page { page, per_page })
     } else if qp.start.is_some() || qp.end.is_some() || qp.limit.is_some() {
         let start = qp.start.unwrap_or(0);
         let end = qp
             .end
-            .unwrap_or_else(|| qp.limit.map_or(total, |limit| start + limit));
+            .unwrap_or_else(|| qp.limit.map_or_else(|| total, |limit| start + limit));
         let slice_len = end.saturating_sub(start).min(total.saturating_sub(start));
 
-        items = items.into_iter().skip(start).take(slice_len).collect();
-
-        QueryResult { items, pagination: Pagination::Slice { start, total } }
+        let items = items.into_iter().skip(start).take(slice_len).collect();
+        (items, Pagination::Slice { start: qp.start, end: qp.end, limit: qp.limit })
     } else {
-        QueryResult { items, pagination: Pagination::None }
-    }
+        (items, Pagination::None)
+    };
+
+    QueryResult { items, pagination, total }
 }
 
 // _where evaluation
@@ -372,7 +385,7 @@ fn str_op(val: Option<&Value>, target: &str, f: impl Fn(&str, &str) -> bool) -> 
 
 //   Full-text searchWW
 fn full_text(v: &Value, q: &str) -> bool {
-    match v.to_owned() {
+    match v {
         Value::Object(v) => v.values().any(|v| full_text(v, q)),
         Value::Array(v) => v.iter().any(|v| full_text(v, q)),
         Value::String(v) => v.to_lowercase().contains(q),
@@ -414,7 +427,6 @@ impl PartialOrd for Sk<'_> {
     }
 }
 
-#[expect(clippy::pattern_type_mismatch)]
 fn sortable(v: Option<&Value>) -> Sk<'_> {
     match v {
         Some(Value::Number(v)) => v.as_f64().map_or(Sk::Null, Sk::Num),
