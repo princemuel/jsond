@@ -12,7 +12,7 @@ It includes features from the old package and the upcoming v1 release.
 > I've set up this project to publish its binaries automatically on release via Github Actions,
 > but that doesn't happen currently due to some issues with my Github Account.
 > Until that is resolved, you can use options
-> [2a](#2a-via-cargo-install) or [2b](#2b-via-cargo-build) to run this project.
+> [2b](#2b-via-cargo-install) or [2c](#2c-via-cargo-build) to run this project.
 >
 > At the moment, it seems I may have to migrate the code to another platform,
 > possibly Codeberg
@@ -51,49 +51,6 @@ curl http://localhost:3000/posts?views:gt=100
 curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
 ```
 
-## Table of Contents
-
-- [JSOND (Json Daemon)](#jsond-json-daemon)
-  - [Quick Start](#quick-start)
-  - [Table of Contents](#table-of-contents)
-  - [Installation](#installation)
-    - [Option 1: Using Install Script](#option-1-using-install-script)
-    - [Option 2: Using Cargo](#option-2-using-cargo)
-      - [2a: Via Cargo Install](#2a-via-cargo-install)
-      - [2b: Via Cargo Build](#2b-via-cargo-build)
-  - [Usage](#usage)
-    - [Database Format](#database-format)
-      - [Collections (arrays)](#collections-arrays)
-      - [Singletons (objects)](#singletons-objects)
-    - [Basic Requests](#basic-requests)
-    - [Filtering](#filtering)
-    - [Nested Field Paths](#nested-field-paths)
-    - [Multiple Filters (AND)](#multiple-filters-and)
-    - [Complex Filters (`_where`)](#complex-filters-_where)
-    - [Sorting](#sorting)
-    - [Pagination](#pagination)
-    - [Full-Text Search](#full-text-search)
-    - [Relations](#relations)
-    - [Cascading Deletes](#cascading-deletes)
-  - [API Reference](#api-reference)
-    - [Routes for Collections (Arrays)](#routes-for-collections-arrays)
-    - [Routes for Singletons (Objects)](#routes-for-singletons-objects)
-    - [Root Resource](#root-resource)
-    - [Filter Operators](#filter-operators)
-    - [Query Parameters](#query-parameters)
-    - [Response Headers](#response-headers)
-  - [CLI Reference](#cli-reference)
-    - [Common Examples](#common-examples)
-  - [Features](#features)
-    - [Fully supported](#fully-supported)
-    - [Partial/Not yet implemented](#partialnot-yet-implemented)
-  - [Static Files](#static-files)
-  - [ID Strategy](#id-strategy)
-  - [Readonly Mode](#readonly-mode)
-  - [File Watching](#file-watching)
-  - [Testing and Development](#testing-and-development)
-  - [License](#license)
-
 ## Installation
 
 ### Option 1: Using Install Script
@@ -102,6 +59,10 @@ Download and run the install script:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/princemuel/jsond/main/install.sh | sh
+
+```
+
+```sh
 jsond db.json
 ```
 
@@ -109,7 +70,13 @@ Or manually:
 
 ```sh
 wget https://raw.githubusercontent.com/princemuel/jsond/main/install.sh
+```
+
+```sh
 sh install.sh
+```
+
+```sh
 jsond db.json
 ```
 
@@ -122,11 +89,23 @@ Requires [Rust 1.84+](https://www.rust-lang.org/tools/install).
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
+#### 2a: Via Cargo Binstall
+
+This installs the package directly from the github releases
+
+```sh
+cargo binstall -y jsond
+```
+
+```sh
+jsond db.json
+```
+
+#### 2b: Via Cargo Install
+
 ```sh
 git clone git@github.com:princemuel/jsond.git
 ```
-
-#### 2a: Via Cargo Install
 
 ```sh
 cargo install --path .
@@ -136,14 +115,24 @@ cargo install --path .
 jsond db.json
 ```
 
-#### 2b: Via Cargo Build
+#### 2c: Via Cargo Build
+
+```sh
+git clone git@github.com:princemuel/jsond.git
+```
 
 ```sh
 cargo build --release
-./target/release/jsond db.json
+
 ```
 
----
+```sh
+./target/release/jsond db.json
+
+# OR
+cp ./target/release/jsond <bin dir> # add jsond binary to path
+jsond db.json
+```
 
 ## Usage
 
