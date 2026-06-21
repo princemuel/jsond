@@ -21,7 +21,7 @@ pub enum Error {
     InvalidHeader,
 
     #[error("'{0}' is not a collection resource")]
-    NotCollection(String),
+    NotACollection(String),
 
     #[error("unprocessable entity: {0}")]
     UnprocessableEntity(String),

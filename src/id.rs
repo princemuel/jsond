@@ -20,9 +20,9 @@ impl ResourceId {
             Self::Int => {
                 let max = collection
                     .iter()
-                    .filter_map(|item| match *item.get("id")? {
-                        Value::String(ref v) => v.parse().ok(),
-                        Value::Number(ref v) => v.as_u64(),
+                    .filter_map(|item| match item.get("id")? {
+                        Value::String(v) => v.parse().ok(),
+                        Value::Number(v) => v.as_u64(),
                         _ => None,
                     })
                     .max()

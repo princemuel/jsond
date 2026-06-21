@@ -1,8 +1,8 @@
 //! Thread-safe in-memory JSON database with atomic file persistence.
 //!
 //! Top-level keys are resource names.
-//! - A Value array is a collection resource (GET / POST / PUT / PATCH / DELETE)
-//! - A Value object is a singleton resource (GET / PUT / PATCH)
+//! - An array is a collection resource (GET / POST / PUT / PATCH / DELETE)
+//! - An object is a singleton resource (GET / PUT / PATCH)
 //!
 //! Each created item gets an auto-generated ID whose format depends on the
 //! resource id strategy is chosen at startup (uuidv4, uuidv7, or int).
@@ -16,22 +16,23 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, info};
 
 use crate::error::Error;
-use crate::id::IdStrategy;
+use crate::id::ResourceId;
+
+const EMPTY: &[Value] = &[];
 
 #[derive(Clone)]
 pub struct Database(Arc<RwLock<Inner>>);
 
-#[derive(Clone)]
 pub struct Inner {
     pub data: Map<String, Value>,
     pub path: PathBuf,
-    pub ids: IdStrategy,
+    pub ids: ResourceId,
     pub readonly: bool,
 }
 
 impl Database {
     /// Load a database from a JSON or JSON5 file.
-    pub fn load<P>(path: P, ids: IdStrategy, readonly: bool) -> Result<Self, Error>
+    pub fn load<P>(path: P, ids: ResourceId, readonly: bool) -> Result<Self, Error>
     where
         P: AsRef<Path>,
     {
@@ -55,8 +56,6 @@ impl Database {
 
     pub async fn write(&self) -> RwLockWriteGuard<'_, Inner> { self.0.write().await }
 
-    // ##### Introspection #####
-
     /// Get the names of all top-level keys.
     pub async fn resources(&self) -> Vec<String> {
         self.read().await.data.keys().cloned().collect()
@@ -78,19 +77,12 @@ impl Database {
 
     /// Get a collection (array).
     pub async fn get_collection(&self, resource: &str) -> Option<Vec<Value>> {
-        self.0
-            .read()
-            .await
-            .data
-            .get(resource)
-            .and_then(|v| v.as_array())
-            .cloned()
+        self.read().await.data.get(resource)?.as_array().cloned()
     }
 
     /// Get a singleton (object).
     pub async fn get_singleton(&self, resource: &str) -> Option<Value> {
-        self.0
-            .read()
+        self.read()
             .await
             .data
             .get(resource)
@@ -100,10 +92,14 @@ impl Database {
 
     /// Find a single item by its `id` field.
     pub async fn find(&self, resource: &str, id: &str) -> Option<Value> {
-        self.get_collection(resource)
-            .await?
-            .into_iter()
+        self.read()
+            .await
+            .data
+            .get(resource)?
+            .as_array()?
+            .iter()
             .find(|item| id_matches(item, id))
+            .cloned()
     }
 
     /// Insert a new item, assigning a string id if one is not present.
@@ -111,30 +107,27 @@ impl Database {
         let mut g = self.write().await;
 
         if item.get("id").is_none() {
-            const EMPTY: &[Value] = &[];
             let collection = g
                 .data
                 .get(resource)
                 .and_then(Value::as_array)
-                .map_or_else(|| EMPTY, Vec::as_slice);
-
+                .map_or(EMPTY, |v| v);
             let id = g.ids.next_id(collection);
-            let _inserted = item
-                .as_object_mut()
+
+            item.as_object_mut()
                 .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
                 .insert("id".to_owned(), id);
         } else {
             normalize_id(&mut item);
         }
 
-        match g.data.get_mut(resource) {
-            Some(&mut Value::Array(ref mut v)) => v.push(item.clone()),
-            Some(_) => return Err(Error::NotCollection(resource.to_owned())),
-            None => {
-                let _inserted = g
-                    .data
-                    .insert(resource.to_owned(), Value::Array(vec![item.clone()]));
-            }
+        match g
+            .data
+            .entry(resource.to_owned())
+            .or_insert_with(|| Value::Array(vec![]))
+        {
+            Value::Array(v) => v.push(item.clone()),
+            _ => return Err(Error::NotACollection(resource.to_owned())),
         }
 
         persist(&g)?;
@@ -143,20 +136,17 @@ impl Database {
 
     /// Full replace (PUT). Uses the id from the url in the body.
     pub async fn replace(&self, resource: &str, id: &str, mut item: Value) -> Result<Value, Error> {
-        let _inserted = item
-            .as_object_mut()
+        item.as_object_mut()
             .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
             .insert("id".to_owned(), Value::String(id.to_owned()));
 
         let mut g = self.write().await;
         let arr = collection_mut(&mut g, resource)?;
-        let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
-
-        if let Some(slot) = arr.get_mut(pos) {
-            *slot = item.clone();
-        } else {
-            return Err(Error::NotFound);
-        }
+        let slot = arr
+            .iter_mut()
+            .find(|i| id_matches(i, id))
+            .ok_or(Error::NotFound)?;
+        *slot = item.clone();
 
         persist(&g)?;
         Ok(item)
@@ -164,34 +154,29 @@ impl Database {
 
     /// Partial update (PATCH). Merges; the `id` is immutable.
     pub async fn patch(&self, resource: &str, id: &str, item: Value) -> Result<Value, Error> {
-        let payload = item
+        let mut payload = item
             .as_object()
-            .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?;
+            .ok_or_else(|| Error::BadRequest("body must be a JSON object".to_owned()))?
+            .clone();
+
+        payload.remove("id"); // id is immutable; never let it be patched in
 
         let mut g = self.write().await;
         let arr = collection_mut(&mut g, resource)?;
-        let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
+        let existing = arr
+            .iter_mut()
+            .find(|i| id_matches(i, id))
+            .ok_or(Error::NotFound)?;
 
-        // Verify the element is an object before mutating
-        let _element = arr
-            .get(pos)
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| Error::NotCollection(resource.to_owned()))?;
-
-        let existing = arr.get_mut(pos).ok_or(Error::NotFound)?;
-
-        // Build merge patch without the `id` field
-        let mut patch_value = Value::Object(payload.clone());
-        let _element = patch_value
-            .as_object_mut()
-            .ok_or(Error::NotFound)?
-            .remove("id");
+        if !existing.is_object() {
+            return Err(Error::NotACollection(resource.to_owned()));
+        }
 
         // RFC 7396 JSON Merge Patch: nulls delete keys, objects recurse, scalars
         // replace
-        merge_json_rfc_7396(existing, &patch_value);
+        merge_json_rfc_7396(existing, &Value::Object(payload));
+        let item = existing.clone();
 
-        let item = arr.get(pos).cloned().ok_or(Error::NotFound)?;
         persist(&g)?;
         Ok(item)
     }
@@ -205,23 +190,18 @@ impl Database {
     ) -> Result<Value, Error> {
         let mut g = self.write().await;
         let arr = collection_mut(&mut g, resource)?;
-        let pos = find_pos(arr, id).ok_or(Error::NotFound)?;
+        let pos = arr
+            .iter()
+            .position(|i| id_matches(i, id))
+            .ok_or(Error::NotFound)?;
         let item = arr.remove(pos);
 
-        // Cascading: remove all items in `dependent` where `<resource_singular>Id ==
-        // id`
+        // Cascade remove all items in `dependent` where `<resource_singular>Id == id`
         if let Some(key) = dependent {
             let fk = format!("{}Id", singular(resource));
 
-            if let Some(&mut Value::Array(ref mut v)) = g.data.get_mut(key) {
-                v.retain(|item| {
-                    item.get(&fk).and_then(Value::as_str) != Some(id)
-                        && item
-                            .get(&fk)
-                            .map(|v| v.to_string().trim_matches('"').to_owned())
-                            .as_deref()
-                            != Some(id)
-                });
+            if let Some(Value::Array(v)) = g.data.get_mut(key) {
+                v.retain(|item| !field_matches(item, &fk, id));
             }
         }
 
@@ -232,94 +212,108 @@ impl Database {
     /// Replace a singleton entirely (PUT).
     pub async fn replace_singleton(&self, resource: &str, item: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
+
         if !matches!(g.data.get(resource), Some(Value::Object(_))) {
             return Err(Error::NotFound);
         }
-        let _inserted = g.data.insert(resource.to_owned(), item.clone());
+        if !item.is_object() {
+            return Err(Error::BadRequest("replacement must be an object".into()));
+        }
+
+        g.data.insert(resource.to_owned(), item.clone());
 
         persist(&g)?;
         Ok(item)
     }
 
     /// Merge-patch a singleton (PATCH).
-    pub async fn patch_singleton(&self, resource: &str, patch: Value) -> Result<Value, Error> {
+    pub async fn patch_singleton(&self, resource: &str, item: Value) -> Result<Value, Error> {
         let mut g = self.write().await;
-        let Some(&mut Value::Object(ref mut payload)) = g.data.get_mut(resource) else {
+
+        let Some(Value::Object(payload)) = g.data.get_mut(resource) else {
             return Err(Error::NotFound);
         };
 
-        if let Value::Object(p) = patch {
-            payload.extend(p);
+        if !item.is_object() {
+            return Err(Error::BadRequest("replacement must be an object".into()));
         }
+
+        let Value::Object(p) = item else {
+            return Err(Error::BadRequest("patch body must be an object".into()));
+        };
+
+        payload.extend(p);
         let item = Value::Object(payload.clone());
+
         persist(&g)?;
         Ok(item)
     }
 }
 
 fn parse_db(raw: &str, path: &Path) -> Result<Map<String, Value>, Error> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let value: Value = if ext == "json5" {
-        json5::from_str(raw).map_err(|e| Error::BadRequest(e.to_string()))?
-    } else {
-        serde_json::from_str(raw)
-            .or_else(|_e| json5::from_str(raw))
-            .map_err(|e| Error::BadRequest(e.to_string()))?
-    };
+    let is_json5 = path.extension().and_then(|e| e.to_str()) == Some("json5");
 
-    value.as_object().cloned().ok_or_else(|| {
-        Error::BadRequest("top-level JSON must be an object, e.g { \"posts\": [...] }".into())
-    })
+    let value: Value = if is_json5 {
+        json5::from_str(raw)
+    } else {
+        serde_json::from_str(raw).or_else(|_| json5::from_str(raw))
+    }
+    .map_err(|e| Error::BadRequest(e.to_string()))?;
+
+    match value {
+        Value::Object(map) => Ok(map),
+        _ => Err(Error::BadRequest(
+            "top-level JSON must be an object, e.g { \"posts\": [...] }".into(),
+        )),
+    }
 }
 
 /// Ensure the `id` field is stored as a string
 pub fn normalize_id(item: &mut Value) {
     if let Some(obj) = item.as_object_mut()
-        && let Some(id) = obj.get("id").cloned()
+        && let Some(id) = obj.remove("id")
     {
         let s = match id {
             Value::String(v) => v,
             v => v.to_string(),
         };
-
-        let _inserted = obj.insert("id".to_owned(), Value::String(s));
+        obj.insert("id".to_owned(), Value::String(s));
     }
 }
+
+fn id_matches(item: &Value, id: &str) -> bool { field_matches(item, "id", id) }
 
 /// Compare an id value (which may be Number or String) against a string.
 #[must_use]
 #[expect(clippy::pattern_type_mismatch)]
-fn id_matches(item: &Value, id: &str) -> bool {
-    match item.get("id") {
+fn field_matches(item: &Value, field: &str, id: &str) -> bool {
+    match item.get(field) {
         Some(Value::String(v)) => v == id,
-        Some(v) => v.to_string().trim_matches('"') == id,
-        None => false,
+        Some(Value::Number(n)) => n.to_string() == id,
+        _ => false,
     }
 }
 
 fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>, Error> {
     match g.data.get_mut(resource) {
-        Some(&mut Value::Array(ref mut v)) => Ok(v),
-        Some(_) => Err(Error::NotCollection(resource.to_owned())),
+        Some(Value::Array(v)) => Ok(v),
+        Some(_) => Err(Error::NotACollection(resource.to_owned())),
         None => Err(Error::NotFound),
     }
 }
 
-fn find_pos(arr: &[Value], id: &str) -> Option<usize> {
-    arr.iter().position(|item| id_matches(item, id))
-}
-
 fn persist(g: &Inner) -> Result<(), Error> {
-    if !g.readonly {
-        let tmp = g.path.with_extension("json.tmp");
-        let json = serde_json::to_string_pretty(&g.data)?;
-
-        fs::write(&tmp, json)?;
-        fs::rename(&tmp, &g.path)?;
-
-        debug!("Persisted database to {}", g.path.display());
+    if g.readonly {
+        return Ok(());
     }
 
+    let tmp = g.path.with_extension("json.tmp");
+    let json = serde_json::to_string_pretty(&g.data)?;
+
+    fs::write(&tmp, json)?;
+    fs::rename(&tmp, &g.path)?;
+
+    debug!("Persisted database to {}", g.path.display());
     Ok(())
 }
 
@@ -338,8 +332,7 @@ pub fn singular(s: &str) -> Cow<'_, str> {
     Cow::Borrowed(s.strip_suffix("s").unwrap_or(s))
 }
 
-/// Patch provided JSON document (given as `serde_json::Value`) in place with
-/// JSON Merge Patch (RFC 7396).
+/// Patch provided JSON document in place via JSON Merge Patch (RFC 7396).
 ///
 /// # Example
 ///
@@ -377,15 +370,16 @@ pub fn merge_json_rfc_7396(doc: &mut Value, patch: &Value) {
         return;
     };
 
-    if !doc.is_object() {
+    let map = if let Some(map) = doc.as_object_mut() {
+        map
+    } else {
         *doc = Value::Object(Map::new());
-    }
-
-    let Some(map) = doc.as_object_mut() else { return };
+        doc.as_object_mut().expect("just set this to an object")
+    };
 
     for (key, value) in patch_map {
         if value.is_null() {
-            let _removed = map.remove(key);
+            map.remove(key);
         } else {
             merge_json_rfc_7396(map.entry(key).or_insert(Value::Null), value);
         }
