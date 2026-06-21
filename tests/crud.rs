@@ -2,7 +2,7 @@
 #![expect(clippy::tests_outside_test_module)]
 pub mod common;
 use common::{TestServer, cascade_db, fixture, ids};
-use jsond::id::IdStrategy;
+use jsond::id::ResourceId;
 use serde_json::json;
 
 #[tokio::test]
@@ -361,14 +361,14 @@ async fn delete_without_dependent_leaves_children() {
 // Int id strategy
 #[tokio::test]
 async fn int_ids_start_at_one_for_empty_collections() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Int).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Int).await;
     let body = s.post_json("/items", json!({ "name": "first" })).await;
     assert_eq!(body.get("id").unwrap(), "1");
 }
 
 #[tokio::test]
 async fn int_ids_auto_increment_sequentially() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Int).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Int).await;
     let a = s.post_json("/items", json!({ "name": "a" })).await;
     let b = s.post_json("/items", json!({ "name": "b" })).await;
     let c = s.post_json("/items", json!({ "name": "c" })).await;
@@ -384,7 +384,7 @@ async fn int_ids_continue_from_existing_max() {
     // Existing max id is 5. the next must be 6
     let s = TestServer::with_strategy(
         json!({ "items": [{ "id": "3" }, { "id": "5" }, { "id": "1" }] }),
-        IdStrategy::Int,
+        ResourceId::Int,
     )
     .await;
     let body = s.post_json("/items", json!({ "name": "x" })).await;
@@ -393,14 +393,14 @@ async fn int_ids_continue_from_existing_max() {
 
 #[tokio::test]
 async fn int_ids_are_always_strings() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Int).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Int).await;
     let body = s.post_json("/items", json!({ "name": "x" })).await;
     assert!(body.get("id").unwrap().is_string(), "Int strategy must still store id as string");
 }
 
 #[tokio::test]
 async fn int_id_explicit_in_post_body_is_respected() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Int).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Int).await;
     let body = s
         .post_json("/items", json!({ "id": "99", "name": "x" }))
         .await;
@@ -413,7 +413,7 @@ async fn int_id_explicit_in_post_body_is_respected() {
 //  UUIDv7 id strategy
 #[tokio::test]
 async fn uuidv7_ids_are_lexicographically_ordered() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Uuidv7).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Uuidv7).await;
     let a = s.post_json("/items", json!({ "n": 1 })).await;
     let b = s.post_json("/items", json!({ "n": 2 })).await;
     let c = s.post_json("/items", json!({ "n": 3 })).await;
@@ -428,7 +428,7 @@ async fn uuidv7_ids_are_lexicographically_ordered() {
 
 #[tokio::test]
 async fn uuidv7_ids_are_valid_uuid_format() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Uuidv7).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Uuidv7).await;
     let body = s.post_json("/items", json!({ "n": 1 })).await;
     let id = body.get("id").unwrap().as_str().unwrap();
     // UUID format: 8-4-4-4-12 hex chars
@@ -441,7 +441,7 @@ async fn uuidv7_ids_are_valid_uuid_format() {
 // UUIDv4 id strategy
 #[tokio::test]
 async fn uuidv4_ids_are_valid_uuid_format() {
-    let s = TestServer::with_strategy(json!({ "items": [] }), IdStrategy::Uuidv4).await;
+    let s = TestServer::with_strategy(json!({ "items": [] }), ResourceId::Uuidv4).await;
     let body = s.post_json("/items", json!({ "n": 1 })).await;
     let id = body.get("id").unwrap().as_str().unwrap();
     assert!(

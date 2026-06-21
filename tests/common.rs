@@ -12,7 +12,7 @@
 use axum::Router;
 use axum::http::{Method, header};
 use jsond::db::Database;
-use jsond::id::IdStrategy;
+use jsond::id::ResourceId;
 use jsond::routes;
 use serde_json::{Value, json};
 use tempfile::NamedTempFile;
@@ -29,11 +29,11 @@ pub struct TestServer {
 impl TestServer {
     /// Spin up with `UUIDv7` ids (sensible default for most tests).
     pub async fn new(db_content: Value) -> Self {
-        Self::with_strategy(db_content, IdStrategy::Uuidv7).await
+        Self::with_strategy(db_content, ResourceId::Uuidv7).await
     }
 
     /// Spin up with an explicit `IdStrategy` (used by id-strategy tests).
-    pub async fn with_strategy(db_content: Value, strategy: IdStrategy) -> Self {
+    pub async fn with_strategy(db_content: Value, strategy: ResourceId) -> Self {
         let mut file = NamedTempFile::new().unwrap();
         serde_json::to_writer_pretty(&mut file, &db_content).unwrap();
 

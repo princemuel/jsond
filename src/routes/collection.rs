@@ -175,18 +175,11 @@ mod handlers {
 }
 
 mod helpers {
-    // TODO: attach_has_many/attach_belongs_to are O(items * children).
-    // each parent item does a fresh linear scan over the full children/parents
-    // vec. Fine for small datasets, will get slow as collections grow.
-    //
-    // Fix: group the lookup collection by its key once *before* the items loop
-    // (HashMap<String, Vec<&Value>> for has_many, HashMap<String, &Value> for
-    // belongs_to, keyed by the normalized id/fk string via
-    // as_str_or_number_string), then do an O(1) lookup per item instead of a
-    // scan. Turns O(items * children) into O(items + children).
+    use std::collections::HashMap;
+
     use serde_json::Value;
 
-    use crate::db::{Database, as_str_or_number_string, field_matches, singular};
+    use crate::db::{Database, as_str_or_number_string, singular};
 
     /// `_embed=comments` -> hasMany.
     /// For each item, attaches `comments: [...]` where `comment.postId ==
@@ -203,23 +196,30 @@ mod helpers {
             return;
         };
 
-        // FIXME: Improve on this later. This is pretty naive
         let fk = format!("{}Id", singular(resource)); // e.g. "postId"
+
+        // Group children by their fk value once, instead of re-scanning the
+        // whole `children` vec for every item.
+        let mut groups: HashMap<String, Vec<&Value>> = HashMap::new();
+
+        for child in &children {
+            if let Some(key) = child.get(&fk).and_then(as_str_or_number_string) {
+                groups.entry(key).or_default().push(child);
+            }
+        }
 
         for item in items.iter_mut() {
             let Some(obj) = item.as_object_mut() else {
                 continue;
             };
-
             let Some(parent_id) = obj.get("id").and_then(as_str_or_number_string) else {
                 continue;
             };
 
-            let related = children
-                .iter()
-                .filter(|child| field_matches(child, &fk, &parent_id))
-                .cloned()
-                .collect();
+            let related = groups
+                .get(&parent_id)
+                .map(|v| v.iter().map(|c| (*c).to_owned()).collect())
+                .unwrap_or_default();
 
             obj.insert(embed.to_owned(), Value::Array(related));
         }
@@ -230,19 +230,25 @@ mod helpers {
     /// parent collection. We try `{expand}s` first (e.g. "posts"), then the
     /// name as-is (e.g. "people"), matching json-server's own pluralisation
     /// logic.
-    pub(super) async fn attach_belongs_to(
-        db: &Database,
-        expand: &str, // singular name of parent, e.g. "post"
-        items: &mut [Value],
-    ) {
+    pub(super) async fn attach_belongs_to(db: &Database, expand: &str, items: &mut [Value]) {
         // Try plural first, then bare name (handles irregular plurals like "people")
         let plural = format!("{expand}s");
+
         let Some(parents) = (match db.get_collection(&plural).await {
             Some(col) => Some(col),
             None => db.get_collection(expand).await,
         }) else {
             return;
         };
+
+        // Group parents by id once; belongs_to only needs one match per key.
+        let mut by_id = HashMap::new();
+
+        for parent in &parents {
+            if let Some(key) = parent.get("id").and_then(as_str_or_number_string) {
+                by_id.entry(key).or_insert(parent);
+            }
+        }
 
         let fk = format!("{expand}Id"); // e.g. "postId"
 
@@ -251,16 +257,13 @@ mod helpers {
                 continue;
             };
 
-            let Some(fk_str) = obj.get(&fk).and_then(as_str_or_number_string) else {
+            let Some(fk) = obj.get(&fk).and_then(as_str_or_number_string) else {
                 continue;
             };
 
-            let parent = parents
-                .iter()
-                .find(|parent| field_matches(parent, "id", &fk_str))
-                .cloned()
-                .unwrap_or(Value::Null);
-
+            let parent = by_id
+                .get(&fk)
+                .map_or_else(|| Value::Null, |v| (*v).to_owned());
             obj.insert(expand.to_owned(), parent);
         }
     }
