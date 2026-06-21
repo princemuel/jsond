@@ -175,9 +175,18 @@ mod handlers {
 }
 
 mod helpers {
+    // TODO: attach_has_many/attach_belongs_to are O(items * children).
+    // each parent item does a fresh linear scan over the full children/parents
+    // vec. Fine for small datasets, will get slow as collections grow.
+    //
+    // Fix: group the lookup collection by its key once *before* the items loop
+    // (HashMap<String, Vec<&Value>> for has_many, HashMap<String, &Value> for
+    // belongs_to, keyed by the normalized id/fk string via
+    // as_str_or_number_string), then do an O(1) lookup per item instead of a
+    // scan. Turns O(items * children) into O(items + children).
     use serde_json::Value;
 
-    use crate::db::{Database, singular};
+    use crate::db::{Database, as_str_or_number_string, field_matches, singular};
 
     /// `_embed=comments` -> hasMany.
     /// For each item, attaches `comments: [...]` where `comment.postId ==
@@ -202,26 +211,17 @@ mod helpers {
                 continue;
             };
 
-            #[expect(clippy::pattern_type_mismatch)]
-            let parent_id = match obj.get("id") {
-                Some(Value::String(v)) => v.to_owned(),
-                Some(v) => v.to_string(),
-                None => continue,
+            let Some(parent_id) = obj.get("id").and_then(as_str_or_number_string) else {
+                continue;
             };
 
             let related = children
                 .iter()
-                .filter(|child| {
-                    #[expect(clippy::pattern_type_mismatch)]
-                    child.get(&fk).is_some_and(|v| match v {
-                        Value::String(v) => v == &parent_id,
-                        v => v.to_string().trim_matches('"') == parent_id,
-                    })
-                })
+                .filter(|child| field_matches(child, &fk, &parent_id))
                 .cloned()
                 .collect();
 
-            let _inserted = obj.insert(embed.to_owned(), Value::Array(related));
+            obj.insert(embed.to_owned(), Value::Array(related));
         }
     }
 
@@ -237,12 +237,11 @@ mod helpers {
     ) {
         // Try plural first, then bare name (handles irregular plurals like "people")
         let plural = format!("{expand}s");
-        let parents = match db.get_collection(&plural).await {
-            Some(col) => col,
-            None => match db.get_collection(expand).await {
-                Some(col) => col,
-                None => return,
-            },
+        let Some(parents) = (match db.get_collection(&plural).await {
+            Some(col) => Some(col),
+            None => db.get_collection(expand).await,
+        }) else {
+            return;
         };
 
         let fk = format!("{expand}Id"); // e.g. "postId"
@@ -252,28 +251,17 @@ mod helpers {
                 continue;
             };
 
-            let Some(fk_val) = obj.get(&fk) else { continue };
-
-            #[expect(clippy::pattern_type_mismatch)]
-            let fk_str = match fk_val {
-                Value::String(v) => v.to_owned(),
-                v => v.to_string(),
+            let Some(fk_str) = obj.get(&fk).and_then(as_str_or_number_string) else {
+                continue;
             };
 
             let parent = parents
                 .iter()
-                .find(|parent| {
-                    // FIXME: resolve this later
-                    #[expect(clippy::pattern_type_mismatch)]
-                    parent.get("id").is_some_and(|v| match v {
-                        Value::String(v) => v == &fk_str,
-                        v => v.to_string().trim_matches('"') == fk_str,
-                    })
-                })
+                .find(|parent| field_matches(parent, "id", &fk_str))
                 .cloned()
                 .unwrap_or(Value::Null);
 
-            let _inserted = obj.insert(expand.to_owned(), parent);
+            obj.insert(expand.to_owned(), parent);
         }
     }
 }

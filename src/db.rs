@@ -250,6 +250,67 @@ impl Database {
     }
 }
 
+use std::borrow::Cow;
+/// Singularize a resource's name
+///
+/// `posts` → `post`, `comments` → `comment`, `babies` → `baby`, `people` →
+/// `people` (no trailing s)
+#[must_use]
+pub fn singular(s: &str) -> Cow<'_, str> {
+    // FIXME: Improve on this later. This is okay for now but pretty naive
+    if let Some(stem) = s.strip_suffix("ies") {
+        return Cow::Owned(format!("{stem}y"));
+    }
+
+    Cow::Borrowed(s.strip_suffix("s").unwrap_or(s))
+}
+
+/// Ensure the `id` field is stored as a string
+pub fn normalize_id(item: &mut Value) {
+    if let Some(obj) = item.as_object_mut()
+        && let Some(id) = obj.remove("id")
+    {
+        let s = match id {
+            Value::String(v) => v,
+            v => v.to_string(),
+        };
+        obj.insert("id".to_owned(), Value::String(s));
+    }
+}
+
+/// Treat a JSON string or number as a comparable id string.
+/// Returns None for any other JSON type (object, array, bool, null).
+#[must_use]
+pub fn as_str_or_number_string(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.to_owned()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Compare an id value (which may be Number or String) against a string.
+#[must_use]
+pub fn id_matches(item: &Value, id: &str) -> bool { field_matches(item, "id", id) }
+
+/// Compare an field's value (which may be Number or String) against a string.
+#[must_use]
+pub fn field_matches(item: &Value, field: &str, id: &str) -> bool {
+    match item.get(field) {
+        Some(Value::String(v)) => v == id,
+        Some(Value::Number(n)) => n.to_string() == id,
+        _ => false,
+    }
+}
+
+fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>, Error> {
+    match g.data.get_mut(resource) {
+        Some(Value::Array(v)) => Ok(v),
+        Some(_) => Err(Error::NotACollection(resource.to_owned())),
+        None => Err(Error::NotFound),
+    }
+}
+
 fn parse_db(raw: &str, path: &Path) -> Result<Map<String, Value>, Error> {
     let is_json5 = path.extension().and_then(|e| e.to_str()) == Some("json5");
 
@@ -268,40 +329,6 @@ fn parse_db(raw: &str, path: &Path) -> Result<Map<String, Value>, Error> {
     }
 }
 
-/// Ensure the `id` field is stored as a string
-pub fn normalize_id(item: &mut Value) {
-    if let Some(obj) = item.as_object_mut()
-        && let Some(id) = obj.remove("id")
-    {
-        let s = match id {
-            Value::String(v) => v,
-            v => v.to_string(),
-        };
-        obj.insert("id".to_owned(), Value::String(s));
-    }
-}
-
-fn id_matches(item: &Value, id: &str) -> bool { field_matches(item, "id", id) }
-
-/// Compare an id value (which may be Number or String) against a string.
-#[must_use]
-#[expect(clippy::pattern_type_mismatch)]
-fn field_matches(item: &Value, field: &str, id: &str) -> bool {
-    match item.get(field) {
-        Some(Value::String(v)) => v == id,
-        Some(Value::Number(n)) => n.to_string() == id,
-        _ => false,
-    }
-}
-
-fn collection_mut<'a>(g: &'a mut Inner, resource: &'a str) -> Result<&'a mut Vec<Value>, Error> {
-    match g.data.get_mut(resource) {
-        Some(Value::Array(v)) => Ok(v),
-        Some(_) => Err(Error::NotACollection(resource.to_owned())),
-        None => Err(Error::NotFound),
-    }
-}
-
 fn persist(g: &Inner) -> Result<(), Error> {
     if g.readonly {
         return Ok(());
@@ -315,21 +342,6 @@ fn persist(g: &Inner) -> Result<(), Error> {
 
     debug!("Persisted database to {}", g.path.display());
     Ok(())
-}
-
-use std::borrow::Cow;
-/// Singularize a resource's name
-///
-/// `posts` → `post`, `comments` → `comment`, `babies` → `baby`, `people` →
-/// `people` (no trailing s)
-#[must_use]
-pub fn singular(s: &str) -> Cow<'_, str> {
-    // FIXME: Improve on this later. This is okay for now but pretty naive
-    if let Some(stem) = s.strip_suffix("ies") {
-        return Cow::Owned(format!("{stem}y"));
-    }
-
-    Cow::Borrowed(s.strip_suffix("s").unwrap_or(s))
 }
 
 /// Patch provided JSON document in place via JSON Merge Patch (RFC 7396).
