@@ -104,7 +104,7 @@ impl Server {
 //     }
 
 //     if args.readonly {
-//         println!("  \x1b[33m>\x1b[0m \x1b[1mReadonly mode\x1b[0m — write
+//         println!("  \x1b[33m>\x1b[0m \x1b[1mReadonly mode\x1b[0m - write
 // operations disabled");     }
 
 //     println!();

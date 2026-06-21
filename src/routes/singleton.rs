@@ -1,9 +1,9 @@
 //! Handlers for singleton resources (top-level objects in the JSON db).
 //!
 //! Routes:
-//!   GET    /:resource   — get singleton
-//!   PUT    /:resource   — full replace
-//!   PATCH  /:resource   — partial update
+//!   GET    /:resource   - get singleton
+//!   PUT    /:resource   - full replace
+//!   PATCH  /:resource   - partial update
 
 use axum::Router;
 use axum::routing::put;

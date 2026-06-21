@@ -198,7 +198,7 @@ async fn put_replaces_all_fields() {
         .put_json("/posts/1", json!({ "title": "Only Title" }))
         .await;
     assert_eq!(body.get("title").unwrap(), "Only Title");
-    // author and views must be gone — it's a full replace
+    // author and views must be gone. it's a full replace
     assert!(body.get("author").is_none(), "author should be absent after full replace");
     assert!(body.get("views").is_none(), "views should be absent after full replace");
 }

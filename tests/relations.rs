@@ -1,4 +1,4 @@
-//! Relation embedding tests — `_embed` (hasMany), `_expand` (belongsTo),
+//! Relation embedding tests. `_embed` (hasMany), `_expand` (belongsTo),
 //! singleton resources, and edge cases around unknown relations.
 #![expect(clippy::tests_outside_test_module)]
 pub mod common;
@@ -109,7 +109,7 @@ async fn embed_combined_with_pagination() {
 #[tokio::test]
 async fn embed_unknown_child_resource_ignored() {
     let s = TestServer::new(fixture()).await;
-    // "likes" doesn't exist — should not 404, just silently skip
+    // "likes" doesn't exist. should not 404, just silently skip
     let res = s.get_qs("/posts", "_embed=likes").await;
     assert_eq!(res.status(), 200);
     let body: Value = res.json().await.unwrap();
@@ -227,7 +227,7 @@ async fn singleton_put_replaces_entirely() {
     let body = s.get_json("/profile").await;
     assert_eq!(body.get("name").unwrap(), "root");
     assert_eq!(body.get("level").unwrap(), 99);
-    // email must be gone — PUT is a full replace
+    // email must be gone. PUT is a full replace
     assert!(body.get("email").is_none(), "email must be absent after PUT");
 }
 
@@ -274,7 +274,7 @@ async fn singleton_patch_returns_merged_object() {
 #[tokio::test]
 async fn singleton_put_on_collection_resource_is_404() {
     let s = TestServer::new(fixture()).await;
-    // /posts is a collection — PUT /{resource} (singleton route) must 404
+    // /posts is a collection. PUT /{resource} (singleton route) must 404
     let res = s.put("/posts", json!({ "x": 1 })).await;
     assert_eq!(res.status(), 404);
 }
@@ -304,7 +304,7 @@ async fn collection_preserves_insertion_order_without_sort() {
 #[tokio::test]
 async fn x_total_count_reflects_filtered_total_not_page() {
     let s = TestServer::new(fixture()).await;
-    // 2 alice posts, page size 1 — X-Total-Count should be 2 (filtered total)
+    // 2 alice posts, page size 1. X-Total-Count should be 2 (filtered total)
     let res = s.get_qs("/posts", "author=alice&_page=1&_per_page=1").await;
     assert_eq!(res.headers()["x-total-count"], "2");
 }

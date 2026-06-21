@@ -13,7 +13,7 @@ mod handlers {
 
     use crate::db::Database;
 
-    /// GET / — return all resource names and example routes.
+    /// GET / return all resource names and example routes.
     pub(super) async fn get(State(db): State<Database>) -> impl IntoResponse {
         Json(json!({ "resources": db.resources().await }))
     }

@@ -1,12 +1,12 @@
 //! Handlers for collection resources (top-level arrays in the JSON db).
 //!
 //! Routes:
-//!   GET    /:resource            — list all (with filter/sort/paginate/embed)
-//!   POST   /:resource            — create one
-//!   GET    /{resource}/{id}      — get one
-//!   PUT    /{resource}/{id}      — full replace
-//!   PATCH  /{resource}/{id}      — partial update
-//!   DELETE /{resource}/{id}      — delete
+//!   GET    /:resource            - list all (with filter/sort/paginate/embed)
+//!   POST   /:resource            - create one
+//!   GET    /{resource}/{id}      - get one
+//!   PUT    /{resource}/{id}      - full replace
+//!   PATCH  /{resource}/{id}      - partial update
+//!   DELETE /{resource}/{id}      - delete
 
 use axum::Router;
 use axum::routing::get;

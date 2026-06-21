@@ -1,5 +1,6 @@
+use axum::http::{Method, header};
 use axum::{Router, middleware as axum_middleware};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -21,8 +22,18 @@ pub fn build_router(db: &Database, args: &Args) -> Router {
     }
 
     if args.cors {
-        // TODO: temporarily setting the layer as permissive for now. to be updated
-        api = api.layer(CorsLayer::permissive());
+        let layer = CorsLayer::new()
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
+            .allow_origin(Any);
+        api = api.layer(layer);
     }
 
     if let Some(layer) = delay::middleware(args.delay) {

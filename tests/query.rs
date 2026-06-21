@@ -251,8 +251,12 @@ async fn sort_numeric_descending_with_minus_prefix() {
 async fn sort_string_field_ascending() {
     let s = TestServer::new(fixture()).await;
     let body = s.get_qs_json("/posts", "_sort=author").await;
-    let authors: Vec<_> =
-        body.as_array().unwrap().iter().map(|p| p["author"].as_str().unwrap()).collect();
+    let authors: Vec<_> = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["author"].as_str().unwrap())
+        .collect();
     let mut sorted = authors.clone();
     sorted.sort_unstable();
     assert_eq!(authors, sorted);
@@ -336,7 +340,9 @@ async fn page_pagination_last_page_partial() {
 async fn page_pagination_items_is_total_not_page_count() {
     let s = TestServer::new(fixture()).await;
     // Apply a filter first. items must reflect filtered total
-    let body = s.get_qs_json("/posts", "author=alice&_page=1&_per_page=10").await;
+    let body = s
+        .get_qs_json("/posts", "author=alice&_page=1&_per_page=10")
+        .await;
     // alice has 2 posts; items should be 2, not 4
     assert_eq!(body.get("items").unwrap(), 2);
     assert_eq!(body.get("data").unwrap().as_array().unwrap().len(), 2);
@@ -391,7 +397,9 @@ async fn slice_start_only_goes_to_end_of_collection() {
 #[tokio::test]
 async fn where_simple_condition() {
     let s = TestServer::new(fixture()).await;
-    let body = s.get_qs_json("/posts", r#"_where={"views":{"gt":200}}"#).await;
+    let body = s
+        .get_qs_json("/posts", r#"_where={"views":{"gt":200}}"#)
+        .await;
     let arr = body.as_array().unwrap();
     assert!(arr.iter().all(|p| p["views"].as_i64().unwrap() > 200));
 }
@@ -416,7 +424,7 @@ async fn where_and_narrows_results() {
     let qs = r#"_where={"and":[{"views":{"gt":50}},{"views":{"lt":300}}]}"#;
     let body = s.get_qs_json("/posts", qs).await;
     let arr = body.as_array().unwrap();
-    // views 80 (id=3) and 250 (id=2) — ids 1 (10) and 4 (500) are out
+    // views 80 (id=3) and 250 (id=2). ids 1 (10) and 4 (500) are out
     assert_eq!(arr.len(), 2);
     let result_ids = ids(&body);
     assert!(result_ids.contains(&"2"));
@@ -468,7 +476,9 @@ async fn where_malformed_json_falls_back_to_plain_filters() {
 async fn filter_sort_and_slice_combined() {
     let s = TestServer::new(fixture()).await;
     // Filter to views > 0 (all), sort by views desc, take first 2
-    let body = s.get_qs_json("/posts", "views:gt=0&_sort=-views&_limit=2").await;
+    let body = s
+        .get_qs_json("/posts", "views:gt=0&_sort=-views&_limit=2")
+        .await;
     let arr = body.as_array().unwrap();
     assert_eq!(arr.len(), 2);
     // Top 2 by views desc: carol (500), bob (250)
@@ -488,7 +498,9 @@ async fn search_with_sort_and_page() {
     });
     let s = TestServer::new(db).await;
     // search "rust", sort by price asc, page 1 of 2 per page
-    let body = s.get_qs_json("/items", "q=rust&_sort=price&_page=1&_per_page=2").await;
+    let body = s
+        .get_qs_json("/items", "q=rust&_sort=price&_page=1&_per_page=2")
+        .await;
     // 3 rust matches: ids 1,2,4. Sorted by price asc: 4(20), 1(30), 2(45). Page 1
     // of 2.
     let data = body.get("data").unwrap();
