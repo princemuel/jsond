@@ -32,7 +32,7 @@ impl Server {
 
         let tcp = {
             let mut port = args.port;
-            // FIXME: can i have two servers on the same database?? BUG??
+            // FIXME: can i have two servers running on the same database?? is that a BUG??
             loop {
                 let addr = format!("{}:{}", args.host, port);
                 match TcpListener::bind(&addr).await {
@@ -141,7 +141,7 @@ async fn shutdown_signal() {
             .await;
     };
     #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+    let terminate = core::future::pending::<()>();
 
     tokio::select! {
         () = ctrl_c => {},

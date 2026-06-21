@@ -1,4 +1,4 @@
-//! Query parameter parsing and application — full json-server v1 spec.
+//! Query parameter parsing and application.
 //!
 //! ## Filter syntax: `field:op=value`
 //! Operators: (none)/eq, ne, lt, lte, gt, gte, in, contains, startsWith,
@@ -10,7 +10,7 @@
 //! ## Pagination (mutually exclusive):
 //! - Page-based:  `_page=1&_per_page=25`  → envelope {
 //!   first,prev,next,last,pages,items,data }
-//! - Slice-based: `_start=0&_end=10`       → plain array + X-Total-Count
+//! - Slice-based: `_start=0&_end=10`      → plain array + X-Total-Count
 //!   `_start=0&_limit=10`      → plain array + X-Total-Count
 //!
 //! ## Relations:
@@ -28,8 +28,6 @@ use core::hash::BuildHasher;
 use std::collections::HashMap;
 
 use serde_json::{Map, Value};
-
-// Types ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
 pub struct QueryParams {

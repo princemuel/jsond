@@ -3,14 +3,15 @@ use core::fmt;
 use serde_json::Value;
 use uuid::Uuid;
 
+/// TODO: is this the right name for this data
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IdStrategy {
+pub enum ResourceId {
     Int,
     Uuidv4,
     Uuidv7,
 }
 
-impl IdStrategy {
+impl ResourceId {
     #[must_use]
     pub fn next_id(self, collection: &[Value]) -> Value {
         match self {
@@ -40,6 +41,6 @@ impl IdStrategy {
     }
 }
 
-impl fmt::Display for IdStrategy {
+impl fmt::Display for ResourceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
 }

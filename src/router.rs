@@ -5,8 +5,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::cli::Args;
 use crate::db::Database;
-use crate::middleware::delay::DelayLayer;
-use crate::middleware::readonly::readonly_guard;
+use crate::middleware::{delay, readonly};
 use crate::routes;
 
 pub fn build_router(db: &Database, args: &Args) -> Router {
@@ -18,16 +17,16 @@ pub fn build_router(db: &Database, args: &Args) -> Router {
 
     let mut api = router.layer(TraceLayer::new_for_http());
     if args.readonly {
-        api = api.layer(axum_middleware::from_fn(readonly_guard));
+        api = api.layer(axum_middleware::from_fn(readonly::middleware));
     }
 
     if args.cors {
-        // TODO: setting the layer as permissive for now. to be updated
+        // TODO: temporarily setting the layer as permissive for now. to be updated
         api = api.layer(CorsLayer::permissive());
     }
 
-    if args.delay > 0 {
-        api = api.layer(DelayLayer::new(args.delay));
+    if let Some(layer) = delay::middleware(args.delay) {
+        api = api.layer(layer);
     }
 
     if args.r#static.is_dir() {

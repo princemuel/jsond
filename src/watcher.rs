@@ -36,12 +36,12 @@ pub(crate) async fn run(path: &Path, db: &Database) -> anyhow::Result<()> {
                 sleep(Duration::from_millis(50)).await;
 
                 if let Err(e) = db.reload().await {
-                    tracing::warn!("Reload failed {e}");
+                    tracing::warn!("database reload failed {e}");
                 } else {
-                    tracing::info!("Database reloaded");
+                    tracing::info!("database reload success");
                 }
             }
-            Err(e) => tracing::warn!("Watcher error: {e}"),
+            Err(e) => tracing::warn!("watcher error: {e}"),
             _ => (),
         }
     }

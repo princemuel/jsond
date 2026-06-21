@@ -1,6 +1,5 @@
-//! Tower middleware layer that injects an artificial delay into every response.
-//! Used to simulate network latency for frontend testing.
-
+//! This middleware layer injects an artificial delay into every response.
+//! It is used to simulate network latency when testing on the frontend.
 use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -64,4 +63,6 @@ where
 
 /// Convenience function: produce no-op if delay == 0.
 #[must_use]
-pub fn delay_middleware(ms: u64) -> Option<DelayLayer> { (ms > 0).then(|| DelayLayer::new(ms)) }
+pub const fn middleware(ms: u64) -> Option<DelayLayer> {
+    if ms > 0 { None } else { Some(DelayLayer::new(ms)) }
+}

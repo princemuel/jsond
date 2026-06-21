@@ -2,7 +2,7 @@ use core::net::Ipv4Addr;
 use std::path::PathBuf;
 
 use crate::error::Error;
-use crate::id::IdStrategy;
+use crate::id::ResourceId;
 
 #[derive(Clone, Debug)]
 pub struct Args {
@@ -30,7 +30,9 @@ pub struct Args {
     /// Readonly mode: disable POST, PUT, PATCH, DELETE
     pub readonly: bool,
 
-    pub ids: IdStrategy,
+    /// TODO: is this the right name for this data
+    /// The id strategy to use for all ids. int, uuidv4, uuidv7
+    pub ids: ResourceId,
 
     /// Number of items per page for pagination (default 10)
     pub per_page: usize,
@@ -84,9 +86,9 @@ impl Args {
                 Long("ids") => {
                     let val = parser.value()?.string()?;
                     args.ids = match val.as_ref() {
-                        "int" => IdStrategy::Int,
-                        "v4" => IdStrategy::Uuidv4,
-                        "v7" => IdStrategy::Uuidv7,
+                        "int" => ResourceId::Int,
+                        "v4" => ResourceId::Uuidv4,
+                        "v7" => ResourceId::Uuidv7,
                         _ => {
                             return Err(Error::BadRequest(
                                 "ids must be one of: int, uuidv4, uuidv7".to_owned(),
@@ -160,7 +162,7 @@ impl Default for Args {
             watch: false,
             cors: false,
             readonly: false,
-            ids: IdStrategy::Uuidv7,
+            ids: ResourceId::Uuidv7,
             per_page: 10,
         }
     }

@@ -42,6 +42,7 @@ pub enum Error {
     ReadOnly,
 }
 
+// FIXME: refactor the errors and error responses later
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, message) = match self {
