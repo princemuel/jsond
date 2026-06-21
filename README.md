@@ -53,86 +53,8 @@ curl http://localhost:3000/posts?_sort=-views&_page=1&_per_page=10
 
 ## Installation
 
-### Option 1: Using Install Script
-
-Download and run the install script:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/princemuel/jsond/main/install.sh | sh
-
-```
-
-```sh
-jsond db.json
-```
-
-Or manually:
-
-```sh
-wget https://raw.githubusercontent.com/princemuel/jsond/main/install.sh
-```
-
-```sh
-sh install.sh
-```
-
-```sh
-jsond db.json
-```
-
-### Option 2: Using Cargo
-
-Requires [Rust 1.84+](https://www.rust-lang.org/tools/install).
-
-```sh
-# Install the latest rust (if you don't have rust)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-#### 2a: Via Cargo Binstall
-
-This installs the package directly from the github releases
-
-```sh
-cargo binstall -y jsond
-```
-
-```sh
-jsond db.json
-```
-
-#### 2b: Via Cargo Install
-
-```sh
-git clone git@github.com:princemuel/jsond.git
-```
-
-```sh
-cargo install --path .
-```
-
-```sh
-jsond db.json
-```
-
-#### 2c: Via Cargo Build
-
-```sh
-git clone git@github.com:princemuel/jsond.git
-```
-
-```sh
-cargo build --release
-
-```
-
-```sh
-./target/release/jsond db.json
-
-# OR
-cp ./target/release/jsond <bin dir> # add jsond binary to path
-jsond db.json
-```
+`jsond` is available for Windows, macOS and Linux. Platform and distribution
+specific installation instructions can be found in [INSTALL.md](./INSTALL.md).
 
 ## Usage
 
